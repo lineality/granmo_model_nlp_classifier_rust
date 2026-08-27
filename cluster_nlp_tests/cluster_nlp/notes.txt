@@ -1,0 +1,114 @@
+
+cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/english-toxic-language-dataset-for-nlp/toxic_comments_english.csv \
+  --text-col text \
+  --label-col label \
+  --model-path /home/oops/models/cluster_1_eng-toxic-lang-dataset-nlp_model.json  \
+  --epochs 50 \
+  --clauses 100 \
+  --max-features 4000
+
+============================================================
+               Classification Evaluation Report
+============================================================
+  Accuracy:        99.30%
+  Macro Precision: 0.9931
+  Macro Recall:    0.9930
+  Macro F1-Score:  0.9930
+------------------------------------------------------------
+Confusion Matrix (Rows: Actual, Columns: Predicted):
+               0             1
+0              997           0
+1              14            989
+============================================================
+
+////////////////////////////////////////////////////////////////////////////
+
+// testing the original datset again:
+
+cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/archive_hsosd/train.csv \
+  --text-col tweet \
+  --label-col class \
+  --model-path /home/oops/models/cluster_1_ehsosd_model.json  \
+  --epochs 50 \
+  --clauses 100 \
+  --max-features 4000
+
+
+$ cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/archive_hsosd/train.csv \
+  --text-col tweet \
+  --label-col class \
+  --model-path /home/oops/models/cluster_1_ehsosd_model.json  \
+  --epochs 50 \
+  --clauses 100 \
+  --max-features 4000
+    Finished `release` profile [optimized] target(s) in 0.01s
+     Running `target/release/cluster_tsetlin_nlp_classifier --mode train --train /home/oops/datasets/archive_hsosd/train.csv --text-col tweet --label-col class --model-path /home/oops/models/cluster_1_ehsosd_model.json --epochs 50 --clauses 100 --max-features 4000`
+Loading training dataset from: /home/oops/datasets/archive_hsosd/train.csv
+Splitting dataset into 80% train / 20% test...
+[1/4] Building vocabulary across 19826 documents...
+  Active vocabulary features: 4000
+[2/4] Fitting K=2 semantic clusters on TF-IDF space...
+[3/4] Pre-training NTM on semantic clusters (50 epochs)...
+[4/4] Supervised Vanilla TM training (50 epochs across 3 classes)...
+
+============================================================
+               Classification Evaluation Report
+============================================================
+  Accuracy:        79.85%
+  Macro Precision: 0.6054
+  Macro Recall:    0.4305
+  Macro F1-Score:  0.4419
+------------------------------------------------------------
+Confusion Matrix (Rows: Actual, Columns: Predicted):
+               2             1             0
+2              275           596           1
+1              114           3681          3
+0              20            265           2
+============================================================
+
+Successfully saved trained model artifact to: /home/oops/models/cluster_1_ehsosd_model.json
+
+
+...
+
+code/tetsu_tsetlin/cluster_nlp$ cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/archive_hsosd/train.csv \
+  --text-col tweet \
+  --label-col class \
+  --model-path /home/oops/models/cluster_1_ehsosd_model.json  \
+  --epochs 50 \
+  --clauses 100 \
+  --max-features 4000
+    Finished `release` profile [optimized] target(s) in 0.01s
+     Running `target/release/cluster_tsetlin_nlp_classifier --mode train --train /home/oops/datasets/archive_hsosd/train.csv --text-col tweet --label-col class --model-path /home/oops/models/cluster_1_ehsosd_model.json --epochs 50 --clauses 100 --max-features 4000`
+Loading training dataset from: /home/oops/datasets/archive_hsosd/train.csv
+Splitting dataset into 80% train / 20% test...
+[1/4] Building vocabulary across 19826 documents...
+  Active vocabulary features: 4000
+[2/4] Fitting K=2 semantic clusters on TF-IDF space...
+[3/4] Pre-training NTM on semantic clusters (50 epochs)...
+[4/4] Supervised Vanilla TM training (50 epochs across 3 classes)...
+
+============================================================
+               Classification Evaluation Report
+============================================================
+  Accuracy:        79.85%
+  Macro Precision: 0.6054
+  Macro Recall:    0.4305
+  Macro F1-Score:  0.4419
+------------------------------------------------------------
+Confusion Matrix (Rows: Actual, Columns: Predicted):
+               2             1             0
+2              275           596           1
+1              114           3681          3
+0              20            265           2
+============================================================
+
+Successfully saved trained model artifact to: /home/oops/models/cluster_1_ehsosd_model.json
