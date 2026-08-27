@@ -1,0 +1,16 @@
+[package]
+name = "granmo_windowed_nlp"
+version = "0.0.2"
+edition = "2024"
+description = "testing Windowed (convolution-analogue) Tsetlin Machine for order-sensitive text classification."
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+csv = "1"
+rayon = "1"
+
+[profile.release]
+# Production efficiency prioritised over compile time.
+lto = true
+codegen-units = 1
