@@ -16,6 +16,9 @@ use --jsonl (flag without other input) for json(l)
   --max-features 6000
 
 
+test with:
+/home/oops/datasets/cyberbullying-classification/cyberbullying_tweets.csv
+
 # Quicks
 cargo run --release -- \
   --mode train \
@@ -1087,3 +1090,62 @@ Successfully saved trained model artifact to: /home/oops/models/Cyber_Bully_Data
 
 
 /////////////
+
+
+cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl \
+  --text-col text \
+  --label-col label \
+  --jsonl \
+  --model-type flat \
+  --model-path /home/oops/models/Cyber_Bully_Data_binary_class-v4-model.json \
+  --epochs 28 \
+  --clauses 200 \
+  --threshold 90 \
+  --specificity 5 \
+  --max-features 4000
+  
+  
+  
+  $ cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl \
+  --text-col text \
+  --label-col label \
+  --jsonl \
+  --model-type flat \
+  --model-path /home/oops/models/Cyber_Bully_Data_binary_class-v4-model.json \
+  --epochs 28 \
+  --clauses 200 \
+  --threshold 90 \
+  --specificity 5 \
+  --max-features 4000
+  
+    Finished `release` profile [optimized] target(s) in 9.83s
+     Running `target/release/granmo_windowed_nlp --mode train --train /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl --text-col text --label-col label --jsonl --model-type flat --model-path /home/oops/models/Cyber_Bully_Data_binary_class-v4-model.json --epochs 28 --clauses 200 --threshold 90 --specificity 5 --max-features 4000`
+Loading training dataset from: /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl
+  Total records loaded: 99879
+Splitting dataset (99879 total rows) into 80% train / 20% test...
+  Split: 79903 train rows, 19976 test rows
+[1/3] Building vocabulary across 79903 documents...
+  Active vocabulary features: 4000
+[2/3] Pre-computing flat BOW vectors (baseline path)...
+[3/3] Training flat VanillaTM (28 epochs, 2 classes)...
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Evaluated Samples: 19976
+  Training Time:     7514.54s
+  Accuracy:        92.71%
+  Macro Precision: 0.9272
+  Macro Recall:    0.9271
+  Macro F1-Score:  0.9271
+------------------------------------------------------------
+Confusion Matrix (Rows: Actual, Columns: Predicted):
+               1             0             
+1              9312          640           
+0              816           9208          
+============================================================
+

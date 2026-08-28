@@ -1,36 +1,35 @@
 //! # Byte-Convolution Granmo Model — Phase 2 Crate
 //!
-//! Binary classification of short social-media text (hate/bullying detection)
-//! using a byte-level convolutional Granmo Model (per Granmo 2018, the
+//! Binary classification of short social-media text (hate/bullying
+//! detection) using byte-level Granmo Models (per Granmo 2018, the
 //! bandit-driven propositional-logic learning architecture), built to a
 //! production profile: integer-only hot paths, no-heap no-panic error
-//! handling, streaming-capable preprocessing, tens-of-KB inference artifact.
+//! handling, streaming-capable preprocessing, kind-dispatched binary
+//! artifacts with four-gate load validation.
 //!
-//! ## This file (first drop) contains:
-//! - `GranmoModelError`: the crate-wide fieldless `#[repr(u16)]` error-code
-//!   enum (Mode & Case Handling framework: no heap, no PII, 2-byte Copy,
-//!   append-only codes, per-module code blocks, `is_retryable()`).
-//! - `FastRng`: deterministic xorshift64 with integer-only draw methods
-//!   (`next_u16` coin draws against precomputed u16 thresholds; range draws
-//!   via widening multiply — see method docs for the bias statement).
-//! - Enforced custom types (`PatchSize`, `StrideLen`, `ClauseCount`,
-//!   `StatesPerAction`, `SpecificityThresholds`, `PreprocessProfile`):
-//!   bounded at construction, revalidated on every `.get()` so post-
-//!   construction corruption surfaces as an error code, never a silent
-//!   bad value.
-//! - M-Preprocess: byte-stream adapter pipeline, stages 1–8 of the
-//!   specification of record (stage 9 / stemmer dropped per resolved
-//!   decision §11.3), presets raw/P0–P5, all as single-pass map-or-drop
-//!   transforms with O(1) state — streaming-capable by construction.
+//! ## Engines (both live behind the `ClassifierEngine` dispatch enum)
+//! - `ByteConvTM` (Section 5, `conv_` methods): byte-level convolutional
+//!   engine — K-byte windows, allowed-bytes masks, OR-pooling.
+//! - `ByteBagTM` (Section 12B, `bag_` methods): flat bag-of-byte-n-grams
+//!   engine — the §8 scientific control isolating positional windowing.
 //!
-//! ## Not yet in this file (next drops):
-//! - M-ByteBag (byte-n-gram view), M-Conv-Core (`ByteConvTM`), artifact I/O.
+//! ## Naming rule (project law)
+//! Every function/method/type name is globally unique in this crate.
+//! Engine methods carry their engine prefix (`conv_`, `bag_`); the plain
+//! dispatch names exist only on `ClassifierEngine`. Sole recorded
+//! exception pending ruling: the framework-uniform `new`/`get` pair on the
+//! enforced newtypes (see the handoff document, open decisions).
 //!
-//! ## Modes (per the Mode & Case Handling framework):
-//! - Production-release: never panics, error paths allocate nothing, no
-//!   logging inside functions before the code is returned.
-//! - Debug: `eprintln!` diagnostics gated `#[cfg(debug_assertions)]`;
-//!   `debug_assert!` gated `#[cfg(all(debug_assertions, not(test)))]`.
+//! ## Section map
+//! S1 errors · S2 RNG · S3 enforced newtypes · S4 preprocess ·
+//! S5 ByteConvTM · S5B ClassifierEngine · S5C shared training math ·
+//! S6 self-check · S7 probability/sweep · S8 artifacts · S9 dataset+split ·
+//! S9B JSONL · S10 experiment runner · S11 CLI · S12 bag vocabulary ·
+//! S12B ByteBagTM · main · tests
+//!
+//! ## Modes (per the Mode & Case Handling framework)
+//! - Production-release: never panics, error paths allocate nothing.
+//! - Debug: `eprintln!` diagnostics gated `#[cfg(debug_assertions)]`.
 //! - Test: `#[cfg(test)]` cargo tests use `assert!` freely.
 
 #![forbid(unsafe_code)]
@@ -150,7 +149,13 @@ pub enum GranmoModelError {
     /// The stored automaton-state count disagrees with the count implied by
     /// the stored configuration header — internally inconsistent artifact.
     ArtStateCountMismatch = 508,
-
+    /// A fixed-domain header field carries an out-of-domain value (a flag
+    /// byte that is neither 0 nor 1, or a nonzero reserved byte). Distinct
+    /// from `Cfg*` bound failures: this is artifact FORMAT domain
+    /// validation, not configuration-range validation. (The v1 loader
+    /// overloaded `ArtKindUnsupported` at the guard-flag site; v2 separates
+    /// the conditions so diagnostics name the true cause.)
+    ArtHeaderFieldInvalid = 509,
     // --- 600–699: Probability output & reporting ---
     /// Probability LUT construction produced an unusable table size.
     PrbLutSizeInvalid = 600,
@@ -210,6 +215,14 @@ pub enum GranmoModelError {
     CliUnknownMode = 804,
     /// `--preset` value was not one of raw/p0/p1/p2/p3/p4/p5.
     CliUnknownPreset = 805,
+    /// `--engine` value was not one of byte-conv/byte-bag.
+    CliUnknownEngine = 806,
+    /// Internal invariant fault in the harness fire-rate/vote fold over
+    /// fired-clause bitsets (a bitset word or per-clause counter fell
+    /// outside its storage, or a counter overflowed). Unreachable unless
+    /// report wiring is corrupt; one shared code for these harness-internal
+    /// sites by design.
+    CliFireRateReportInternalFault = 807,
     // --- 900–999: ByteBag baseline (`Bbg*`) — flat bag-of-byte-n-grams,
     //     the scientific control for "does convolution earn its complexity"
     //     (§8 success criteria). ---
@@ -226,6 +239,31 @@ pub enum GranmoModelError {
     /// the sorted-lookup order is not a strict permutation): corruption
     /// after construction/load.
     BbgVocabRecheckCorrupt = 903,
+
+    /// An internal ByteBagTM engine index (state slot, mask word, or
+    /// literal) fell outside its backing storage. Internal-invariant
+    /// violation: unreachable unless engine state is corrupt or a caller
+    /// is mis-wired. One shared code for all such sites by design
+    /// (mirrors 401 for the conv engine and 902 for the vocabulary).
+    BbgEngineIndexOutOfRange = 904,
+    /// Checked arithmetic overflowed in ByteBagTM engine code (allocation
+    /// sizing, vote accumulation, or state stepping). Mirrors 405.
+    BbgEngineArithmeticOverflow = 905,
+    /// A ByteBagTM automaton state lies outside the legal band [1, 2N].
+    /// Mirrors 404.
+    BbgStateValueOutOfRange = 906,
+    /// A stored ByteBagTM include mask (positive or negated) disagrees
+    /// with recomputation from raw automaton states
+    /// (`bag_validate_internal_consistency`). Mirrors 402.
+    BbgIncludeMaskInconsistent = 907,
+
+    // --- 1000–1099: Shared engine training math (`Trn*`) — helpers used
+    //     identically by every engine (feedback gates, etc.). ---
+    /// Checked arithmetic overflowed while computing the integer feedback
+    /// gates. Mathematically unreachable within `VoteThreshold` bounds
+    /// (T <= 10000 bounds every intermediate at <= 20000); present as
+    /// defence-in-depth per the checked-arithmetic rule.
+    TrnGateArithmeticOverflow = 1000,
 }
 
 impl GranmoModelError {
@@ -247,6 +285,7 @@ impl GranmoModelError {
             | Self::CfgPatchSizeOutOfBounds
             | Self::CfgPatchSizeRecheckCorrupt
             | Self::CfgStrideOutOfBounds
+            | Self::ArtHeaderFieldInvalid
             | Self::CfgStrideRecheckCorrupt
             | Self::CfgClauseCountInvalid
             | Self::CfgClauseCountRecheckCorrupt
@@ -299,6 +338,13 @@ impl GranmoModelError {
             | Self::BbgArithmeticOverflow
             | Self::BbgVocabIndexOutOfRange
             | Self::BbgVocabRecheckCorrupt
+            | Self::TrnGateArithmeticOverflow
+            | Self::BbgEngineIndexOutOfRange
+            | Self::BbgEngineArithmeticOverflow
+            | Self::BbgStateValueOutOfRange
+            | Self::BbgIncludeMaskInconsistent
+            | Self::CliUnknownEngine
+            | Self::CliFireRateReportInternalFault
             | Self::CliUnknownPreset => false,
         }
     }
@@ -1227,6 +1273,43 @@ impl ByteConvTM {
         Ok(idx)
     }
 
+    // --- Per-clause P4-property accessors (M-Hetero accommodation) ---------
+    //
+    // Design record (Sessions 1–3): heterogeneous team composition may
+    // legitimately vary the P4-TIER tuning properties (automaton depth N,
+    // specificity thresholds, GuardedInclude flag) PER CLAUSE, and must
+    // never vary P1/P2/P5 (automaton structure). These four accessors are
+    // the single seam through which every hot-path read of a P4 property
+    // flows. Today they return the engine-level scalar (homogeneous team —
+    // the recorded baseline). When the TeamCompositionPalette lands
+    // (M-Hetero), ONLY these bodies, the constructor, and the artifact
+    // format grow — no feedback, mask, or validation logic changes. The
+    // `_clause` parameter is therefore deliberate, not dead weight.
+
+    /// Automaton depth N for this clause's team (states live in [1, 2N]).
+    #[inline(always)]
+    fn depth_for_clause(&self, _clause: usize) -> i16 {
+        self.states_per_action
+    }
+
+    /// P(forget) coin threshold (≈ 65536 × 1/s) for this clause.
+    #[inline(always)]
+    fn forget_threshold_for_clause(&self, _clause: usize) -> u16 {
+        self.forget_threshold_u16
+    }
+
+    /// P(reinforce) coin threshold (≈ 65536 × (s−1)/s) for this clause.
+    #[inline(always)]
+    fn reinforce_threshold_for_clause(&self, _clause: usize) -> u16 {
+        self.reinforce_threshold_u16
+    }
+
+    /// GuardedInclude flag for this clause (ablation arm; default false).
+    #[inline(always)]
+    fn guard_for_clause(&self, _clause: usize) -> bool {
+        self.guarded_include
+    }
+
     // --- Window geometry ----------------------------------------------------
 
     /// Effective scan length (cap applied) and the short-document flag.
@@ -1399,7 +1482,7 @@ impl ByteConvTM {
     /// All window start positions (byte offsets) where `clause` fires —
     /// the explainability source-span primitive (§7.3). Research/explain
     /// path: heap allocation is in the data path, which is permitted.
-    pub fn fired_window_positions(
+    pub fn conv_fired_window_positions(
         &self,
         clause: usize,
         document: &[u8],
@@ -1437,7 +1520,7 @@ impl ByteConvTM {
     /// readable. Research/explain data path: heap permitted here; this is
     /// the primary debugging instrument per the plan (M-Explain built
     /// alongside M-Conv-Core, not after).
-    pub fn describe_clause(
+    pub fn conv_describe_clause(
         &self,
         clause: usize,
         max_rendered_literals: usize,
@@ -1445,7 +1528,7 @@ impl ByteConvTM {
         if clause >= self.n_clauses {
             return Err(GranmoModelError::BctIndexOutOfRange);
         }
-        let depth_n = self.states_per_action;
+        let depth_n = self.depth_for_clause(clause);
         let mut parts: Vec<String> = Vec::new();
         let mut omitted: usize = 0;
 
@@ -1511,7 +1594,7 @@ impl ByteConvTM {
         clause: usize,
         slot: usize,
     ) -> Result<[u64; MASK_WORDS], GranmoModelError> {
-        let depth_n = self.states_per_action;
+        let depth_n = self.depth_for_clause(clause);
         let pos_start = self.global_state_index(clause, self.positive_local_index(slot, 0))?;
         let neg_start = self.global_state_index(clause, self.negated_local_index(slot, 0))?;
         let pos_end = pos_start
@@ -1573,7 +1656,7 @@ impl ByteConvTM {
         clause: usize,
         local_literal: usize,
     ) -> Result<(), GranmoModelError> {
-        let depth_n = self.states_per_action;
+        let depth_n = self.depth_for_clause(clause);
         let twice_n = depth_n
             .checked_mul(2)
             .ok_or(GranmoModelError::BctArithmeticOverflow)?;
@@ -1591,7 +1674,7 @@ impl ByteConvTM {
         let is_positive_literal = local_literal < positive_region_len;
         let crossing = state == depth_n;
 
-        if crossing && is_positive_literal && self.guarded_include {
+        if crossing && is_positive_literal && self.guard_for_clause(clause) {
             let slot = local_literal / BYTE_ALPHABET_SIZE;
             let slot_idx = self.global_slot_index(clause, slot)?;
             let current_count = *self
@@ -1639,7 +1722,7 @@ impl ByteConvTM {
         clause: usize,
         local_literal: usize,
     ) -> Result<(), GranmoModelError> {
-        let depth_n = self.states_per_action;
+        let depth_n = self.depth_for_clause(clause);
         let boundary_plus_one = depth_n
             .checked_add(1)
             .ok_or(GranmoModelError::BctArithmeticOverflow)?;
@@ -1691,6 +1774,9 @@ impl ByteConvTM {
     /// of ONE sampled fired window. True literals strengthen with
     /// P ≈ (s−1)/s; false literals decay with P ≈ 1/s. All draws are u16
     /// threshold coins — integer-only. Cost O(K × 512) literal visits.
+    /// Thresholds are fetched once per event through the per-clause
+    /// accessors (the M-Hetero seam); the coin-draw ORDER is unchanged, so
+    /// seeded runs are bit-identical to the pre-accessor implementation.
     fn apply_type_ia_feedback(
         &mut self,
         clause: usize,
@@ -1699,6 +1785,8 @@ impl ByteConvTM {
         window_start: usize,
         rng: &mut FastRng,
     ) -> Result<(), GranmoModelError> {
+        let reinforce_threshold = self.reinforce_threshold_for_clause(clause);
+        let forget_threshold = self.forget_threshold_for_clause(clause);
         for slot in 0..self.patch_size {
             let observed = Self::window_byte(document, effective_len, window_start, slot);
             for byte_value in 0..BYTE_ALPHABET_SIZE {
@@ -1707,19 +1795,19 @@ impl ByteConvTM {
                 let positive_literal_true = byte_value == usize::from(observed);
 
                 if positive_literal_true {
-                    if rng.coin(self.reinforce_threshold_u16) {
+                    if rng.coin(reinforce_threshold) {
                         self.increment_ta_state(clause, pos_local)?;
                     }
-                } else if rng.coin(self.forget_threshold_u16) {
+                } else if rng.coin(forget_threshold) {
                     self.decrement_ta_state(clause, pos_local)?;
                 }
 
                 // Negated literal truth is the complement.
                 if !positive_literal_true {
-                    if rng.coin(self.reinforce_threshold_u16) {
+                    if rng.coin(reinforce_threshold) {
                         self.increment_ta_state(clause, neg_local)?;
                     }
-                } else if rng.coin(self.forget_threshold_u16) {
+                } else if rng.coin(forget_threshold) {
                     self.decrement_ta_state(clause, neg_local)?;
                 }
             }
@@ -1735,8 +1823,9 @@ impl ByteConvTM {
         clause: usize,
         rng: &mut FastRng,
     ) -> Result<(), GranmoModelError> {
+        let forget_threshold = self.forget_threshold_for_clause(clause);
         for local_literal in 0..self.literals_per_clause() {
-            if rng.coin(self.forget_threshold_u16) {
+            if rng.coin(forget_threshold) {
                 self.decrement_ta_state(clause, local_literal)?;
             }
         }
@@ -1781,10 +1870,12 @@ impl ByteConvTM {
     /// Binary single-bank semantics (§4): label=1 target ⇒ positive-polarity
     /// clauses get Type I and negative-polarity fired clauses get Type II,
     /// gated per clause with P = (T−V)/2T; label=0 mirrors with (T+V)/2T.
-    /// The gate is an exact integer comparison: draw r ∈ [0, 2T), apply iff
-    /// r < gate. Scanning (immutable) completes for ALL clauses before any
-    /// state mutation, so every clause's feedback is attributed against the
-    /// pre-update model — the same discipline as Phase 1.
+    /// The gate is an exact integer comparison computed by the shared
+    /// `resolve_feedback_gates` helper (Section 5C) — shared so ByteBagTM
+    /// uses the byte-identical gate implementation. Scanning (immutable)
+    /// completes for ALL clauses before any state mutation, so every
+    /// clause's feedback is attributed against the pre-update model — the
+    /// same discipline as Phase 1.
     pub fn train_step(
         &mut self,
         document: &[u8],
@@ -1813,18 +1904,8 @@ impl ByteConvTM {
             fired_and_sample.push((fired, sampled_start));
         }
 
-        let threshold_t = self.vote_threshold;
-        let clamped_v = vote.clamp(-threshold_t, threshold_t);
-        // Integer gates: (T−V) for target-consistent updates, (T+V) otherwise.
-        let gate_when_target = threshold_t
-            .checked_sub(clamped_v)
-            .ok_or(GranmoModelError::BctArithmeticOverflow)?;
-        let gate_when_other = threshold_t
-            .checked_add(clamped_v)
-            .ok_or(GranmoModelError::BctArithmeticOverflow)?;
-        let two_t = (threshold_t as usize)
-            .checked_mul(2)
-            .ok_or(GranmoModelError::BctArithmeticOverflow)?;
+        // Integer feedback gates (shared helper, Section 5C).
+        let gates = resolve_feedback_gates(vote, self.vote_threshold)?;
 
         // Pass 2 (mutable): per-clause gated feedback.
         for clause in 0..self.n_clauses {
@@ -1835,12 +1916,12 @@ impl ByteConvTM {
 
             // Which feedback family, and which gate, this clause receives.
             let (gate, receives_type_i) = if label_is_positive {
-                (gate_when_target, positive_polarity)
+                (gates.gate_when_target, positive_polarity)
             } else {
-                (gate_when_other, !positive_polarity)
+                (gates.gate_when_other, !positive_polarity)
             };
 
-            let draw = rng.gen_index(two_t)? as i32;
+            let draw = rng.gen_index(gates.two_t)? as i32;
             if draw >= gate {
                 continue; // gated out this step
             }
@@ -1868,22 +1949,47 @@ impl ByteConvTM {
 
     /// Re-derives every mask and every positive-include count from raw
     /// automaton states and compares against the caches; also checks every
-    /// state lies in the legal band [1, 2N]. Call after any future artifact
-    /// load (same pattern as Phase 1's `validate_internal_consistency`) and
+    /// state lies in its clause's legal band [1, 2N]. Structured PER CLAUSE
+    /// (not one flat pass) because depth N is read through
+    /// `depth_for_clause` — under a future TeamCompositionPalette each
+    /// clause may carry its own band, and this loop is already shaped for
+    /// that. Call after any artifact load (same pattern as Phase 1) and
     /// after training in tests.
     pub fn validate_internal_consistency(&self) -> Result<(), GranmoModelError> {
-        let depth_n = self.states_per_action;
-        let twice_n = depth_n
-            .checked_mul(2)
+        // Storage-geometry gate: the state vector must be exactly
+        // clause_count × literals_per_clause, or the per-clause slicing
+        // below could silently skip trailing states.
+        let expected_total = self
+            .n_clauses
+            .checked_mul(self.literals_per_clause())
             .ok_or(GranmoModelError::BctArithmeticOverflow)?;
-
-        for &state in &self.ta_states {
-            if state < 1 || state > twice_n {
-                return Err(GranmoModelError::BctStateValueOutOfRange);
-            }
+        if self.ta_states.len() != expected_total {
+            return Err(GranmoModelError::BctIndexOutOfRange);
         }
 
         for clause in 0..self.n_clauses {
+            let depth_n = self.depth_for_clause(clause);
+            let twice_n = depth_n
+                .checked_mul(2)
+                .ok_or(GranmoModelError::BctArithmeticOverflow)?;
+
+            // Band check over exactly this clause's states.
+            let clause_base = clause
+                .checked_mul(self.literals_per_clause())
+                .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+            let clause_end = clause_base
+                .checked_add(self.literals_per_clause())
+                .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+            let clause_states = self
+                .ta_states
+                .get(clause_base..clause_end)
+                .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+            for &state in clause_states {
+                if state < 1 || state > twice_n {
+                    return Err(GranmoModelError::BctStateValueOutOfRange);
+                }
+            }
+
             for slot in 0..self.patch_size {
                 let slot_idx = self.global_slot_index(clause, slot)?;
 
@@ -1933,7 +2039,7 @@ impl ByteConvTM {
     /// when the state stops changing (saturated at 2N, or refused by the
     /// GuardedInclude clamp).
     #[cfg(test)]
-    fn test_force_include(&mut self, clause: usize, local_literal: usize) {
+    fn conv_test_force_include(&mut self, clause: usize, local_literal: usize) {
         loop {
             let global = self.global_state_index(clause, local_literal).unwrap();
             let before = self.ta_states[global];
@@ -1944,6 +2050,207 @@ impl ByteConvTM {
             }
         }
     }
+}
+
+// ===========================================================================
+// SECTION 5B: ClassifierEngine — engine-agnostic dispatch (R1 refactor)
+// ===========================================================================
+
+/// The polymorphic model unit: every engine this crate can train, evaluate,
+/// persist, or predict with is exactly one variant of this enum.
+///
+/// ## Why an enum and not a trait object
+/// The coding rules exclude `dyn` dispatch ("no fancy pointer use") and
+/// favor exhaustive `match`: adding a variant makes every dispatch site
+/// below fail to compile until the new engine is wired — no silent
+/// fall-through, no default-method surprises. This mirrors the Phase 1
+/// `ClassifierModel` enum pattern recorded in the hand-off as "good pattern."
+///
+/// ## Scientific role
+/// The §8 comparison discipline requires competing engines to share ONE
+/// harness, ONE splitter, ONE sweep, ONE artifact framing — differing in
+/// exactly the variable under test. This enum is the seam that makes that
+/// structural: `run_single_experiment`, the CLI handlers, and
+/// `ModelArtifact` are written against it, once.
+#[derive(Debug, Clone)]
+pub enum ClassifierEngine {
+    /// Byte-level convolutional Granmo Model (specification §4 of record;
+    /// Section 5). Positional: learns byte patterns at window offsets.
+    ByteConv(ByteConvTM),
+    /// Flat bag-of-byte-n-grams Granmo Model (Section 12B) — the §8
+    /// scientific control. Differs from ByteConv in exactly one variable:
+    /// positional windowing (the bag has none).
+    ByteBag(ByteBagTM),
+}
+
+// ---[ DROP NOTE 2.2c-i — removable ]---------------------------------------
+// Pending rename cleanup (scheduled after Drop 2.2c-ii, before the session
+// handoff): eight ByteConvTM method names currently duplicate the dispatch
+// method names on this enum (vote_sum, predict, train_step,
+// fired_clause_bits, describe_clause, validate_internal_consistency,
+// clause_count, build_probability_lut), plus test_force_include. Proposal
+// of record: ByteConvTM methods gain a `conv_` prefix (symmetric with the
+// `bag_` prefix), leaving each plain name existing exactly once — on this
+// enum, as the sole public dispatch surface. Constructor-name (`new`)
+// policy is a separate decision item at cleanup time.
+// ---[ end drop note ]-------------------------------------------------------
+
+impl ClassifierEngine {
+    /// Stable engine identifier for reports, run labels, and the
+    /// `--engine` CLI value.
+    pub fn engine_name(&self) -> &'static str {
+        match self {
+            Self::ByteConv(_) => "byte-conv",
+            Self::ByteBag(_) => "byte-bag",
+        }
+    }
+
+    /// The artifact kind byte this engine persists as (Section 8 format).
+    pub fn artifact_kind(&self) -> u8 {
+        match self {
+            Self::ByteConv(_) => ARTIFACT_KIND_BYTECONV_FULL_TRAINING,
+            Self::ByteBag(_) => ARTIFACT_KIND_BYTEBAG_FULL_TRAINING,
+        }
+    }
+
+    /// Signed vote sum V (semantics documented per engine).
+    pub fn conv_vote_sum(&self, document: &[u8]) -> Result<i32, GranmoModelError> {
+        match self {
+            Self::ByteConv(conv_engine) => conv_engine.conv_vote_sum(document),
+            Self::ByteBag(bag_engine) => bag_engine.bag_vote_sum(document),
+        }
+    }
+
+    /// Binary prediction: label 1 iff `V > decision_threshold` (default 0;
+    /// the threshold is a free sweep axis for imbalance handling, §8).
+    pub fn conv_predict(
+        &self,
+        document: &[u8],
+        decision_threshold: i32,
+    ) -> Result<bool, GranmoModelError> {
+        Ok(self.conv_vote_sum(document)? > decision_threshold)
+    }
+
+    /// One stochastic training update for one document.
+    pub fn conv_train_step(
+        &mut self,
+        document: &[u8],
+        label_is_positive: bool,
+        rng: &mut FastRng,
+    ) -> Result<(), GranmoModelError> {
+        match self {
+            Self::ByteConv(conv_engine) => {
+                conv_engine.conv_train_step(document, label_is_positive, rng)
+            }
+            Self::ByteBag(bag_engine) => {
+                bag_engine.bag_train_step(document, label_is_positive, rng)
+            }
+        }
+    }
+
+    /// Fired-clause bitset (embedding deliverable §7.2; fire-rate input).
+    pub fn conv_fired_clause_bits(&self, document: &[u8]) -> Result<Vec<u64>, GranmoModelError> {
+        match self {
+            Self::ByteConv(conv_engine) => conv_engine.conv_fired_clause_bits(document),
+            Self::ByteBag(bag_engine) => bag_engine.bag_fired_clause_bits(document),
+        }
+    }
+
+    /// Human-readable clause decode (explainability §7.3). Engine-specific
+    /// SPAN reporting (e.g. conv window offsets) is deliberately NOT here:
+    /// spans are positional concepts that not every engine has, so callers
+    /// needing them match the variant (see `handle_predict`).
+    pub fn describe_clause(
+        &self,
+        clause: usize,
+        max_rendered_literals: usize,
+    ) -> Result<String, GranmoModelError> {
+        match self {
+            Self::ByteConv(conv_engine) => {
+                conv_engine.conv_describe_clause(clause, max_rendered_literals)
+            }
+            Self::ByteBag(bag_engine) => {
+                bag_engine.bag_describe_clause(clause, max_rendered_literals)
+            }
+        }
+    }
+
+    /// Full derived-cache and state-band validation (artifact load gate 4).
+    pub fn conv_validate_internal_consistency(&self) -> Result<(), GranmoModelError> {
+        match self {
+            Self::ByteConv(conv_engine) => conv_engine.conv_validate_internal_consistency(),
+            Self::ByteBag(bag_engine) => bag_engine.bag_validate_internal_consistency(),
+        }
+    }
+
+    /// Clause count (reporting; LUT sizing).
+    pub fn conv_clause_count(&self) -> usize {
+        match self {
+            Self::ByteConv(conv_engine) => conv_engine.conv_clause_count(),
+            Self::ByteBag(bag_engine) => bag_engine.bag_clause_count(),
+        }
+    }
+
+    /// Probability LUT matched to this engine's clause count and T.
+    pub fn conv_build_probability_lut(&self) -> Result<ProbabilityLut, GranmoModelError> {
+        match self {
+            Self::ByteConv(conv_engine) => conv_engine.conv_build_probability_lut(),
+            Self::ByteBag(bag_engine) => bag_engine.bag_build_probability_lut(),
+        }
+    }
+}
+
+// ===========================================================================
+// SECTION 5C: Shared Engine Training Math (Trn* codes, 1000-block)
+// ===========================================================================
+
+/// Integer feedback gates for one training step, precomputed once per
+/// document from the vote sum V (clamped to ±T) and the vote target T.
+///
+/// Semantics — the (T∓V)/2T resource-allocation rule of the specification,
+/// in exact integer form, identical for every engine:
+/// - a clause receiving TARGET-consistent feedback is selected with
+///   probability (T − V_clamped) / 2T: apply iff draw < `gate_when_target`;
+/// - a clause receiving the OTHER feedback family is selected with
+///   probability (T + V_clamped) / 2T: apply iff draw < `gate_when_other`;
+/// - the draw is one integer r ∈ [0, 2T) from `FastRng::gen_index`.
+///
+/// Extracted from `ByteConvTM::train_step` (Drop 3.0b) so that ByteBagTM
+/// (Drop 2.2b) uses the byte-identical gate implementation: the §8
+/// comparison discipline requires the two engines to differ ONLY in
+/// feature structure, never in shared training mechanics.
+struct FeedbackGates {
+    /// Gate for the clause polarity aligned with the document's label.
+    gate_when_target: i32,
+    /// Gate for the opposite polarity.
+    gate_when_other: i32,
+    /// Draw range 2T (always ≥ 2, since `VoteThreshold` ≥ 1).
+    two_t: usize,
+}
+
+/// Computes the gates. Overflow is mathematically unreachable here
+/// (`VoteThreshold` ≤ 10000 bounds every intermediate at ≤ 20000), but the
+/// arithmetic is checked regardless, per the coding rules.
+fn resolve_feedback_gates(
+    vote_sum: i32,
+    vote_threshold: i32,
+) -> Result<FeedbackGates, GranmoModelError> {
+    let clamped_v = vote_sum.clamp(-vote_threshold, vote_threshold);
+    let gate_when_target = vote_threshold
+        .checked_sub(clamped_v)
+        .ok_or(GranmoModelError::TrnGateArithmeticOverflow)?;
+    let gate_when_other = vote_threshold
+        .checked_add(clamped_v)
+        .ok_or(GranmoModelError::TrnGateArithmeticOverflow)?;
+    let two_t = usize::try_from(vote_threshold)
+        .ok()
+        .and_then(|threshold| threshold.checked_mul(2))
+        .ok_or(GranmoModelError::TrnGateArithmeticOverflow)?;
+    Ok(FeedbackGates {
+        gate_when_target,
+        gate_when_other,
+        two_t,
+    })
 }
 
 // ===========================================================================
@@ -1979,10 +2286,10 @@ fn run_self_check() -> Result<(), GranmoModelError> {
         MaxScanBytes::new(256)?,
         false,
     )?;
-    if engine.vote_sum(b"hello world")? != 0 {
+    if engine.conv_vote_sum(b"hello world")? != 0 {
         return Err(GranmoModelError::BctMaskCacheInconsistent);
     }
-    engine.validate_internal_consistency()?;
+    engine.conv_validate_internal_consistency()?;
 
     #[cfg(debug_assertions)]
     eprintln!("self-check passed: preprocess pipelines and fresh ByteConvTM verified");
@@ -2097,7 +2404,7 @@ impl ProbabilityLut {
     /// artifact load or on demand in long-running processes. O(C), so it is
     /// deliberately NOT run per prediction — `probability_u16` performs the
     /// cheap endpoint check instead.
-    pub fn validity_recheck(&self) -> Result<(), GranmoModelError> {
+    pub fn lut_validity_recheck(&self) -> Result<(), GranmoModelError> {
         if self.entries.is_empty() {
             return Err(GranmoModelError::PrbLutRecheckCorrupt);
         }
@@ -2216,49 +2523,86 @@ pub fn sweep_decision_thresholds(
 }
 
 // ===========================================================================
-// SECTION 8: Artifact I/O — Full-Training Artifact (Art* codes, 500-block)
+// SECTION 8: Artifact I/O — Kind-Dispatched Binary Artifacts (Art* codes)
 // ===========================================================================
 //
-// Binary format, version 1, little-endian throughout:
+// Binary format, version 2, little-endian throughout.
+//
+// COMMON PRELUDE (all kinds — the loader dispatches on `kind` and never
+// needs any engine's header layout to do so):
 //
 //   offset  size  field
 //   0       8     magic  b"GRANMOB1"
-//   8       2     format version (u16) = 1
-//   10      2     preprocess profile bits (u16)          [locked §10.9]
-//   12      1     patch size K (u8)
-//   13      1     stride S (u8)
-//   14      2     clause count (u16)
-//   16      2     vote threshold T (i16)
-//   18      2     states per action N (i16)
-//   20      2     forget threshold (u16)
-//   22      2     reinforce threshold (u16)
-//   24      4     max scan bytes (u32)
-//   28      1     guarded-include flag (u8: 0/1)
-//   29      1     artifact kind (u8): 1 = FullTraining
-//                 (2 = CompactInference reserved for M-Prod-Pass)
-//   30      2     reserved, must be 0
+//   8       2     format version (u16) = 2
+//   10      1     artifact kind (u8):
+//                   1 = ByteConv full training (raw automaton states)
+//                   2 = compact inference        (RESERVED, M-Prod-Pass)
+//                   3 = ByteBag full training    (vocabulary + raw states)
+//   11      1     reserved, must be 0
+//   12      2     preprocess profile bits (u16)              [locked §10.9]
+//
+// KIND-1 BODY (ByteConv full training; engine header is 18 bytes, so the
+// state payload begins at offset 32):
+//
+//   14      1     patch size K (u8)
+//   15      1     stride S (u8)
+//   16      2     clause count (u16)
+//   18      2     vote threshold T (i16)
+//   20      2     states per action N (i16)
+//   22      2     forget threshold (u16)
+//   24      2     reinforce threshold (u16)
+//   26      4     max scan bytes (u32)
+//   30      1     guarded-include flag (u8: 0/1)
+//   31      1     reserved, must be 0
 //   32      2*L   automaton states (i16 each), L = clauses * 2 * K * 256
+//
+// KIND-3 BODY (ByteBag full training; engine header is also 18 bytes, so
+// the variable-length sections begin at offset 32):
+//
+//   14      1     n-gram length n (u8)
+//   15      1     reserved, must be 0
+//   16      2     vocabulary count M (u16, >= 1): the ACTUAL learned
+//                 vocabulary size, which may be smaller than the requested
+//                 VocabSize cap — that is a recorded property, not an error
+//   18      2     clause count (u16)
+//   20      2     vote threshold T (i16)
+//   22      2     states per action N (i16)
+//   24      2     forget threshold (u16)
+//   26      2     reinforce threshold (u16)
+//   28      4     max scan bytes (u32)
+//   32      M*n   vocabulary flat bytes: rank-ordered, fixed width, no
+//                 length prefixes (rank r occupies [r*n, (r+1)*n))
+//   32+M*n  2*L   automaton states (i16 each), L = clauses * 2 * M
+//
+// TRAILER (all kinds):
 //   end     8     FNV-1a-64 checksum over ALL preceding bytes (u64)
 //
 // Design notes:
-// - Masks and count caches are NOT stored: they are derived data, rebuilt
-//   from raw states at load and then cross-checked by
-//   `validate_internal_consistency` — the same "re-validate on load"
-//   pattern Phase 1 used, extended with a checksum so gross corruption is
-//   caught before parsing begins.
+// - v1 -> v2: v1 placed the kind byte inside the ByteConv header, which
+//   could not generalize to a second engine; v2 hoists kind into the
+//   common prelude. v1 files are rejected by the version gate; artifacts
+//   are regenerable experiment outputs, no migration path by design.
+// - Derived data is NEVER stored: conv masks/counts, bag include masks,
+//   and the bag vocabulary's byte-sorted lookup order are all rebuilt from
+//   raw persisted data at load and then cross-checked by full consistency
+//   validation (load gate 4).
 // - Specificity round-trips as the exact integer thresholds (never as the
 //   float `s`), so a loaded model is bit-identical in behavior.
-// - The probability LUT is not stored in the FULL artifact (rebuilt from
-//   the header by the harness). The compact inference artifact
-//   (M-Prod-Pass) WILL embed the LUT verbatim so production load stays
+// - The probability LUT is not stored in FULL artifacts (rebuilt from the
+//   header by the harness). The compact inference artifact (kind 2,
+//   M-Prod-Pass) WILL embed the LUT verbatim to keep production load
 //   float-free.
 
-/// File magic identifying a Granmo Model artifact, format family B, v1 line.
+/// File magic identifying a Granmo Model artifact, format family B.
 const ARTIFACT_MAGIC: [u8; 8] = *b"GRANMOB1";
-/// Current binary format version.
-const ARTIFACT_FORMAT_VERSION: u16 = 1;
-/// Artifact kind byte: full training artifact (raw automaton states).
-const ARTIFACT_KIND_FULL_TRAINING: u8 = 1;
+/// Current binary format version (v2: kind-dispatched common prelude).
+const ARTIFACT_FORMAT_VERSION: u16 = 2;
+/// Artifact kind byte: ByteConv full-training artifact (raw states).
+const ARTIFACT_KIND_BYTECONV_FULL_TRAINING: u8 = 1;
+/// Artifact kind byte: ByteBag full-training artifact (vocabulary flat
+/// bytes + raw automaton states). Kind 2 remains reserved for the compact
+/// inference artifact (M-Prod-Pass).
+const ARTIFACT_KIND_BYTEBAG_FULL_TRAINING: u8 = 3;
 
 /// FNV-1a 64-bit hash. `wrapping_mul` is the DEFINED behavior of this hash
 /// (modular arithmetic), not an unchecked-arithmetic violation: wrapping is
@@ -2318,63 +2662,232 @@ impl<'a> ByteCursor<'a> {
         Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
     }
 }
+/// Writes the kind-1 (ByteConv full-training) body: 18-byte engine header +
+/// raw i16 states. The engine's usize fields were validated into these
+/// ranges at construction, so the narrowing conversions cannot truncate —
+/// still guarded via `try_from`/range checks as defence-in-depth.
+fn write_byte_conv_full_body(
+    engine: &ByteConvTM,
+    buffer: &mut Vec<u8>,
+) -> Result<(), GranmoModelError> {
+    if engine.patch_size > usize::from(u8::MAX)
+        || engine.stride > usize::from(u8::MAX)
+        || engine.n_clauses > usize::from(u16::MAX)
+        || engine.max_scan_bytes > u32::MAX as usize
+    {
+        return Err(GranmoModelError::BctIndexOutOfRange);
+    }
+    let vote_threshold_i16 =
+        i16::try_from(engine.vote_threshold).map_err(|_| GranmoModelError::BctIndexOutOfRange)?;
+
+    buffer.reserve(engine.ta_states.len().saturating_mul(2).saturating_add(18));
+    buffer.push(engine.patch_size as u8);
+    buffer.push(engine.stride as u8);
+    buffer.extend_from_slice(&(engine.n_clauses as u16).to_le_bytes());
+    buffer.extend_from_slice(&vote_threshold_i16.to_le_bytes());
+    buffer.extend_from_slice(&engine.states_per_action.to_le_bytes());
+    buffer.extend_from_slice(&engine.forget_threshold_u16.to_le_bytes());
+    buffer.extend_from_slice(&engine.reinforce_threshold_u16.to_le_bytes());
+    buffer.extend_from_slice(&(engine.max_scan_bytes as u32).to_le_bytes());
+    buffer.push(u8::from(engine.guarded_include));
+    buffer.push(0u8); // reserved
+    for &state in &engine.ta_states {
+        buffer.extend_from_slice(&state.to_le_bytes());
+    }
+    Ok(())
+}
+
+/// Parses the kind-1 (ByteConv full-training) body: every header value
+/// passes through its enforced-type constructor (load gate 2), raw states
+/// are read, derived caches rebuilt (gate 3). Gate 4 — full consistency
+/// validation — runs in the COMMON load path via the engine enum, because
+/// every kind must pass it.
+fn read_byte_conv_full_body(cursor: &mut ByteCursor<'_>) -> Result<ByteConvTM, GranmoModelError> {
+    let patch_size = PatchSize::new(cursor.read_u8()?)?;
+    let stride = StrideLen::new(cursor.read_u8()?)?;
+    let n_clauses = ClauseCount::new(cursor.read_u16_le()?)?;
+    let vote_threshold = VoteThreshold::new(cursor.read_i16_le()?)?;
+    let states_per_action = StatesPerAction::new(cursor.read_i16_le()?)?;
+    let forget_threshold = cursor.read_u16_le()?;
+    let reinforce_threshold = cursor.read_u16_le()?;
+    let specificity =
+        SpecificityThresholds::from_raw_thresholds(forget_threshold, reinforce_threshold)?;
+    let max_scan_bytes = MaxScanBytes::new(cursor.read_u32_le()?)?;
+    let guarded_include = match cursor.read_u8()? {
+        0 => false,
+        1 => true,
+        _ => return Err(GranmoModelError::ArtHeaderFieldInvalid),
+    };
+    if cursor.read_u8()? != 0 {
+        return Err(GranmoModelError::ArtHeaderFieldInvalid);
+    }
+
+    let mut engine = ByteConvTM::new(
+        patch_size,
+        stride,
+        n_clauses,
+        vote_threshold,
+        states_per_action,
+        specificity,
+        max_scan_bytes,
+        guarded_include,
+    )?;
+    let expected_state_count = engine.ta_states.len();
+    let state_bytes = cursor.take(
+        expected_state_count
+            .checked_mul(2)
+            .ok_or(GranmoModelError::BctArithmeticOverflow)?,
+    )?;
+    for (state_slot, chunk) in engine.ta_states.iter_mut().zip(state_bytes.chunks_exact(2)) {
+        *state_slot = i16::from_le_bytes([chunk[0], chunk[1]]);
+    }
+    engine.rebuild_caches_from_states()?;
+    Ok(engine)
+}
+
+/// Writes the kind-3 (ByteBag full-training) body: 18-byte engine header +
+/// vocabulary flat bytes + raw i16 states (format table in the section
+/// banner). Every narrowing conversion is guarded via `try_from` even
+/// though construction-time validation makes truncation unreachable
+/// (defence-in-depth, same posture as the kind-1 writer).
+fn write_byte_bag_full_body(
+    bag_engine: &ByteBagTM,
+    buffer: &mut Vec<u8>,
+) -> Result<(), GranmoModelError> {
+    let ngram_len_u8 = u8::try_from(bag_engine.bag_vocabulary.ngram_length())
+        .map_err(|_| GranmoModelError::BbgEngineIndexOutOfRange)?;
+    let vocab_count_u16 = u16::try_from(bag_engine.bag_vocabulary.vocabulary_len())
+        .map_err(|_| GranmoModelError::BbgEngineIndexOutOfRange)?;
+    let clause_count_u16 = u16::try_from(bag_engine.bag_clause_total)
+        .map_err(|_| GranmoModelError::BbgEngineIndexOutOfRange)?;
+    let vote_target_i16 = i16::try_from(bag_engine.bag_vote_target)
+        .map_err(|_| GranmoModelError::BbgEngineIndexOutOfRange)?;
+    let scan_cap_u32 = u32::try_from(bag_engine.bag_scan_cap_bytes)
+        .map_err(|_| GranmoModelError::BbgEngineIndexOutOfRange)?;
+
+    // Same-module private-field access, same pattern as the kind-1 writer's
+    // access to conv engine internals: the writer IS part of the engine's
+    // persistence contract.
+    let vocabulary_flat = &bag_engine.bag_vocabulary.ngram_flat_bytes;
+
+    buffer.reserve(
+        18usize
+            .saturating_add(vocabulary_flat.len())
+            .saturating_add(bag_engine.bag_ta_states.len().saturating_mul(2)),
+    );
+    buffer.push(ngram_len_u8);
+    buffer.push(0u8); // reserved
+    buffer.extend_from_slice(&vocab_count_u16.to_le_bytes());
+    buffer.extend_from_slice(&clause_count_u16.to_le_bytes());
+    buffer.extend_from_slice(&vote_target_i16.to_le_bytes());
+    buffer.extend_from_slice(&bag_engine.bag_automaton_depth.to_le_bytes());
+    buffer.extend_from_slice(&bag_engine.bag_forget_coin_threshold.to_le_bytes());
+    buffer.extend_from_slice(&bag_engine.bag_reinforce_coin_threshold.to_le_bytes());
+    buffer.extend_from_slice(&scan_cap_u32.to_le_bytes());
+    buffer.extend_from_slice(vocabulary_flat);
+    for &state in &bag_engine.bag_ta_states {
+        buffer.extend_from_slice(&state.to_le_bytes());
+    }
+    Ok(())
+}
+
+/// Parses the kind-3 (ByteBag full-training) body: every header value
+/// passes through its enforced-type constructor (load gate 2); the
+/// vocabulary is reconstructed from its flat bytes with its lookup order
+/// rebuilt and structurally validated; raw states are read and the include
+/// masks rebuilt from them (gate 3). Gate 4 — full consistency validation —
+/// runs in the COMMON load path via the engine enum.
+fn read_byte_bag_full_body(cursor: &mut ByteCursor<'_>) -> Result<ByteBagTM, GranmoModelError> {
+    let ngram_len = NgramLength::new(cursor.read_u8()?)?;
+    if cursor.read_u8()? != 0 {
+        return Err(GranmoModelError::ArtHeaderFieldInvalid);
+    }
+    let vocab_count = cursor.read_u16_le()?;
+    if vocab_count == 0 {
+        return Err(GranmoModelError::ArtHeaderFieldInvalid);
+    }
+    let clause_count = ClauseCount::new(cursor.read_u16_le()?)?;
+    let vote_target = VoteThreshold::new(cursor.read_i16_le()?)?;
+    let automaton_depth = StatesPerAction::new(cursor.read_i16_le()?)?;
+    let forget_threshold_raw = cursor.read_u16_le()?;
+    let reinforce_threshold_raw = cursor.read_u16_le()?;
+    let specificity =
+        SpecificityThresholds::from_raw_thresholds(forget_threshold_raw, reinforce_threshold_raw)?;
+    let scan_cap = MaxScanBytes::new(cursor.read_u32_le()?)?;
+
+    // Vocabulary flat bytes: fixed width, exactly vocab_count * n bytes.
+    let vocabulary_flat_len = usize::from(vocab_count)
+        .checked_mul(usize::from(ngram_len.get()?))
+        .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+    let vocabulary_flat_slice = cursor.take(vocabulary_flat_len)?;
+    let restored_vocabulary =
+        ByteBagVocabulary::from_flat_bytes(ngram_len, vocabulary_flat_slice.to_vec())?;
+
+    // Engine shell from validated header values, then state overwrite.
+    let mut bag_engine = ByteBagTM::new_with_vocabulary(
+        restored_vocabulary,
+        clause_count,
+        vote_target,
+        automaton_depth,
+        specificity,
+        scan_cap,
+    )?;
+    let expected_state_count = bag_engine.bag_ta_states.len();
+    let state_bytes = cursor.take(
+        expected_state_count
+            .checked_mul(2)
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?,
+    )?;
+    for (state_slot, chunk) in bag_engine
+        .bag_ta_states
+        .iter_mut()
+        .zip(state_bytes.chunks_exact(2))
+    {
+        *state_slot = i16::from_le_bytes([chunk[0], chunk[1]]);
+    }
+    bag_engine.bag_rebuild_masks_from_states()?;
+    Ok(bag_engine)
+}
 
 /// The persisted unit: engine + the preprocessing profile it was trained
 /// with, coupled in ONE artifact so inference can never accidentally replay
-/// the wrong preprocessing (locked decision §10.9 made structural).
+/// the wrong preprocessing (locked decision §10.9 made structural). The
+/// engine is the polymorphic `ClassifierEngine`: ONE save/load path serves
+/// every engine kind — the common prelude carries the kind byte, and each
+/// kind supplies only its private body writer/reader.
 #[derive(Debug, Clone)]
 pub struct ModelArtifact {
     pub preprocess_profile: PreprocessProfile,
-    pub engine: ByteConvTM,
+    pub engine: ClassifierEngine,
 }
 
 impl ModelArtifact {
-    /// Serializes to the format documented at the top of this section and
-    /// writes to `absolute_path`. The path must be absolute (crate policy);
-    /// filesystem failure detail is dropped (no-PII policy) and reported as
-    /// the retryable `ArtFileWriteFailed` — callers may Tier-1 retry.
+    /// Serializes per the Section 8 format and writes to `absolute_path`.
+    /// The path must be absolute (crate policy); filesystem failure detail
+    /// is dropped (no-PII policy) and reported as the retryable
+    /// `ArtFileWriteFailed` — callers may Tier-1 retry.
     pub fn save_to_file(&self, absolute_path: &std::path::Path) -> Result<(), GranmoModelError> {
         if !absolute_path.is_absolute() {
             #[cfg(debug_assertions)]
             eprintln!("ART-500: path not absolute: {}", absolute_path.display());
             return Err(GranmoModelError::ArtPathNotAbsolute);
         }
-
         let profile_bits = self.preprocess_profile.get_bits()?;
-        let engine = &self.engine;
 
-        // Header assembly. Field widths are fixed by the format table; the
-        // engine's usize fields were validated into these ranges at
-        // construction, so the narrowing casts below cannot truncate — but
-        // each is still range-guarded as defence-in-depth.
-        if engine.patch_size > usize::from(u8::MAX)
-            || engine.stride > usize::from(u8::MAX)
-            || engine.n_clauses > usize::from(u16::MAX)
-            || engine.max_scan_bytes > u32::MAX as usize
-        {
-            return Err(GranmoModelError::BctIndexOutOfRange);
-        }
-
-        let payload_capacity = 32usize.saturating_add(engine.ta_states.len().saturating_mul(2));
-        let mut buffer: Vec<u8> = Vec::with_capacity(payload_capacity.saturating_add(8));
-
+        let mut buffer: Vec<u8> = Vec::with_capacity(64);
         buffer.extend_from_slice(&ARTIFACT_MAGIC);
         buffer.extend_from_slice(&ARTIFACT_FORMAT_VERSION.to_le_bytes());
+        buffer.push(self.engine.artifact_kind());
+        buffer.push(0u8); // reserved
         buffer.extend_from_slice(&profile_bits.to_le_bytes());
-        buffer.push(engine.patch_size as u8);
-        buffer.push(engine.stride as u8);
-        buffer.extend_from_slice(&(engine.n_clauses as u16).to_le_bytes());
-        buffer.extend_from_slice(&(engine.vote_threshold as i16).to_le_bytes());
-        buffer.extend_from_slice(&engine.states_per_action.to_le_bytes());
-        buffer.extend_from_slice(&engine.forget_threshold_u16.to_le_bytes());
-        buffer.extend_from_slice(&engine.reinforce_threshold_u16.to_le_bytes());
-        buffer.extend_from_slice(&(engine.max_scan_bytes as u32).to_le_bytes());
-        buffer.push(u8::from(engine.guarded_include));
-        buffer.push(ARTIFACT_KIND_FULL_TRAINING);
-        buffer.extend_from_slice(&[0u8, 0u8]); // reserved
 
-        for &state in &engine.ta_states {
-            buffer.extend_from_slice(&state.to_le_bytes());
+        match &self.engine {
+            ClassifierEngine::ByteConv(conv_engine) => {
+                write_byte_conv_full_body(conv_engine, &mut buffer)?
+            }
+            ClassifierEngine::ByteBag(bag_engine) => {
+                write_byte_bag_full_body(bag_engine, &mut buffer)?
+            }
         }
 
         let checksum = fnv1a_64(&buffer);
@@ -2390,13 +2903,15 @@ impl ModelArtifact {
         }
     }
 
-    /// Loads and fully validates an artifact:
-    /// 1. checksum over the raw bytes (catches bit-rot/truncation early);
-    /// 2. header parse through the enforced-type constructors (every config
-    ///    value is re-bounded exactly as at original construction);
-    /// 3. cache rebuild from raw states (masks + counts are derived, never
-    ///    trusted from disk);
-    /// 4. `validate_internal_consistency` as the final gate.
+    /// Loads and fully validates an artifact, four gates in order:
+    /// 1. checksum over the raw bytes (bit-rot/truncation caught first);
+    /// 2. common prelude + kind dispatch, then the kind's body parse with
+    ///    every config value re-bounded through its enforced type;
+    /// 3. derived-cache rebuild from raw persisted data (conv masks/counts,
+    ///    bag include masks, bag vocabulary lookup order — never trusted
+    ///    from disk);
+    /// 4. `validate_internal_consistency` via the engine enum — every kind
+    ///    must pass it, so it runs in the common path.
     /// A model that survives all four is behaviorally identical to the one
     /// that was saved.
     pub fn load_from_file(absolute_path: &std::path::Path) -> Result<Self, GranmoModelError> {
@@ -2415,8 +2930,7 @@ impl ModelArtifact {
             }
         };
 
-        // Step 1: checksum. The last 8 bytes are the stored FNV-1a-64 of
-        // everything before them.
+        // Gate 1: checksum. Last 8 bytes = stored FNV-1a-64 of the rest.
         if raw.len() < 8 {
             return Err(GranmoModelError::ArtTruncated);
         }
@@ -2433,7 +2947,7 @@ impl ModelArtifact {
             return Err(GranmoModelError::ArtChecksumMismatch);
         }
 
-        // Step 2: header parse, every value through its enforced type.
+        // Gate 2: common prelude, then kind dispatch into the body parser.
         let mut cursor = ByteCursor::new(payload);
         if cursor.take(8)? != ARTIFACT_MAGIC {
             return Err(GranmoModelError::ArtMagicMismatch);
@@ -2441,55 +2955,34 @@ impl ModelArtifact {
         if cursor.read_u16_le()? != ARTIFACT_FORMAT_VERSION {
             return Err(GranmoModelError::ArtVersionUnsupported);
         }
-        let profile = PreprocessProfile::from_bits(cursor.read_u16_le()?)?;
-        let patch_size = PatchSize::new(cursor.read_u8()?)?;
-        let stride = StrideLen::new(cursor.read_u8()?)?;
-        let n_clauses = ClauseCount::new(cursor.read_u16_le()?)?;
-        let vote_threshold = VoteThreshold::new(cursor.read_i16_le()?)?;
-        let states_per_action = StatesPerAction::new(cursor.read_i16_le()?)?;
-        let forget_threshold = cursor.read_u16_le()?;
-        let reinforce_threshold = cursor.read_u16_le()?;
-        let specificity =
-            SpecificityThresholds::from_raw_thresholds(forget_threshold, reinforce_threshold)?;
-        let max_scan_bytes = MaxScanBytes::new(cursor.read_u32_le()?)?;
-        let guarded_include = match cursor.read_u8()? {
-            0 => false,
-            1 => true,
-            _ => return Err(GranmoModelError::ArtKindUnsupported),
-        };
-        if cursor.read_u8()? != ARTIFACT_KIND_FULL_TRAINING {
-            return Err(GranmoModelError::ArtKindUnsupported);
+        let kind = cursor.read_u8()?;
+        if cursor.read_u8()? != 0 {
+            return Err(GranmoModelError::ArtHeaderFieldInvalid);
         }
-        let _reserved = cursor.take(2)?;
+        let profile = PreprocessProfile::from_bits(cursor.read_u16_le()?)?;
 
-        // Step 3: state payload. Expected count is implied by the header;
-        // a mismatch means the header and body disagree — reject.
-        let mut engine = ByteConvTM::new(
-            patch_size,
-            stride,
-            n_clauses,
-            vote_threshold,
-            states_per_action,
-            specificity,
-            max_scan_bytes,
-            guarded_include,
-        )?;
-        let expected_state_count = engine.ta_states.len();
-        let state_bytes = cursor.take(
-            expected_state_count
-                .checked_mul(2)
-                .ok_or(GranmoModelError::BctArithmeticOverflow)?,
-        )?;
+        // Gates 2 (body) + 3 (cache rebuild) happen inside the kind parser.
+        let engine = match kind {
+            ARTIFACT_KIND_BYTECONV_FULL_TRAINING => {
+                ClassifierEngine::ByteConv(read_byte_conv_full_body(&mut cursor)?)
+            }
+            ARTIFACT_KIND_BYTEBAG_FULL_TRAINING => {
+                ClassifierEngine::ByteBag(read_byte_bag_full_body(&mut cursor)?)
+            }
+            _unsupported => {
+                #[cfg(debug_assertions)]
+                eprintln!("ART-507: unsupported artifact kind {}", _unsupported);
+                return Err(GranmoModelError::ArtKindUnsupported);
+            }
+        };
+
+        // Common structural gate: the body must consume the payload EXACTLY;
+        // trailing bytes mean header and body disagree about size.
         if cursor.position != payload.len() {
-            // Trailing junk after the declared payload: header/body mismatch.
             return Err(GranmoModelError::ArtStateCountMismatch);
         }
-        for (state_slot, chunk) in engine.ta_states.iter_mut().zip(state_bytes.chunks_exact(2)) {
-            *state_slot = i16::from_le_bytes([chunk[0], chunk[1]]);
-        }
 
-        // Step 4: rebuild derived caches from raw states, then validate.
-        engine.rebuild_caches_from_states()?;
+        // Gate 4: full consistency validation, engine-agnostic.
         engine.validate_internal_consistency()?;
 
         Ok(Self {
@@ -2505,10 +2998,11 @@ impl ByteConvTM {
     /// never trusted from disk (they are not even stored). After this,
     /// `validate_internal_consistency` must pass by construction — it is
     /// still run as the final load gate (defence-in-depth against a bug in
-    /// THIS function).
+    /// THIS function). Depth is read per clause through `depth_for_clause`
+    /// (the M-Hetero seam), matching the validation loop's structure.
     fn rebuild_caches_from_states(&mut self) -> Result<(), GranmoModelError> {
-        let depth_n = self.states_per_action;
         for clause in 0..self.n_clauses {
+            let depth_n = self.depth_for_clause(clause);
             for slot in 0..self.patch_size {
                 // Recompute the include count for this slot.
                 let pos_start =
@@ -2537,6 +3031,45 @@ impl ByteConvTM {
     }
 }
 
+impl ByteBagTM {
+    /// Rebuilds both include masks purely from raw automaton states
+    /// (artifact-load path, gate 3). Masks are zeroed and re-derived
+    /// through the same `bag_set_include_bit` path used by live training.
+    /// After this, `bag_validate_internal_consistency` must pass by
+    /// construction — it is still run as the final load gate
+    /// (defence-in-depth, mirroring the conv engine's
+    /// `rebuild_caches_from_states` pattern).
+    fn bag_rebuild_masks_from_states(&mut self) -> Result<(), GranmoModelError> {
+        for word in self.bag_positive_include_masks.iter_mut() {
+            *word = 0;
+        }
+        for word in self.bag_negated_include_masks.iter_mut() {
+            *word = 0;
+        }
+        let feature_count = self.bag_feature_count();
+        for clause in 0..self.bag_clause_total {
+            let clause_depth = self.bag_depth_for_clause(clause);
+            for rank in 0..feature_count {
+                let positive_state = *self
+                    .bag_ta_states
+                    .get(self.bag_state_index(clause, rank)?)
+                    .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+                if positive_state > clause_depth {
+                    self.bag_set_include_bit(clause, rank, true)?;
+                }
+                let negated_state = *self
+                    .bag_ta_states
+                    .get(self.bag_state_index(clause, feature_count + rank)?)
+                    .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+                if negated_state > clause_depth {
+                    self.bag_set_include_bit(clause, feature_count + rank, true)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 // ===========================================================================
 // SECTION 9: Dataset Ingestion (research-harness tier)
 // ===========================================================================
@@ -2553,6 +3086,24 @@ pub struct LabeledDocument {
     pub label_is_positive: bool,
 }
 
+/// Seeded in-place Fisher–Yates shuffle (high index downward), generic over
+/// element type. This is the SINGLE shuffle implementation in the crate,
+/// used by `split_dataset` (shuffling documents) and by the per-epoch
+/// training-order shuffle in `run_single_experiment` (shuffling indices).
+/// One implementation means the two sites cannot drift apart — and the
+/// draw sequence is part of the crate's determinism contract: identical
+/// seeds must give identical splits and identical training order.
+fn shuffle_in_place<T>(items: &mut [T], rng: &mut FastRng) -> Result<(), GranmoModelError> {
+    let mut i = items.len();
+    while i > 1 {
+        i -= 1;
+        // i <= len - 1 here, so i + 1 <= len: this addition cannot overflow.
+        let j = rng.gen_index(i + 1)?;
+        items.swap(i, j);
+    }
+    Ok(())
+}
+
 /// Seeded Fisher–Yates shuffle + split. `train_percent` is an INTEGER
 /// percentage (1..=99) — no float enters split geometry, so identical
 /// seeds give byte-identical splits across machines (the §8 requirement
@@ -2566,13 +3117,7 @@ pub fn split_dataset(
         return Err(GranmoModelError::DsSplitRatioInvalid);
     }
     let mut shuffled: Vec<LabeledDocument> = documents.to_vec();
-    // Fisher–Yates, high index downward, seeded RNG.
-    let mut i = shuffled.len();
-    while i > 1 {
-        i -= 1;
-        let j = rng.gen_index(i + 1)?;
-        shuffled.swap(i, j);
-    }
+    shuffle_in_place(&mut shuffled, rng)?;
     let train_count = shuffled
         .len()
         .checked_mul(usize::from(train_percent))
@@ -3040,16 +3585,41 @@ pub fn load_labeled_jsonl(
 // SECTION 10: Experiment Runner (research-harness tier)
 // ===========================================================================
 
+/// Pre-construction engine choice for one experiment run: the
+/// config-surface counterpart of `ClassifierEngine` (which holds a LIVE
+/// engine; this selects which one to build). A fieldless enum rather than
+/// a string so an invalid engine name is rejected exactly once, at CLI
+/// parse time (fail-fast policy), and everything downstream matches
+/// exhaustively — adding a third engine later makes the compiler flag
+/// every selection site, same checklist mechanism as `ClassifierEngine`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EngineSelection {
+    /// Byte-level convolutional engine (`ByteConvTM`, Section 5).
+    ByteConv,
+    /// Flat bag-of-byte-n-grams control engine (`ByteBagTM`, Section 12B).
+    ByteBag,
+}
+
 /// All resolved parameters for one experiment run. Raw primitive fields are
 /// deliberate HERE (and only here): this struct is the CLI-facing surface,
 /// and every value is pushed through its enforced newtype constructor inside
 /// `run_single_experiment` — so validation happens exactly once, at the
 /// boundary between user input and engine.
+///
+/// Engine-specific fields: `patch_size`, `stride`, and `guarded_include`
+/// apply ONLY to the ByteConv engine; `bag_ngram_len` and `bag_vocab_size`
+/// apply ONLY to the ByteBag engine. The non-selected engine's fields are
+/// carried but ignored — deliberately, so ONE config struct describes any
+/// run and batch mode can flip `engine_selection` on an otherwise identical
+/// config (the §8 single-variable comparison discipline).
 #[derive(Debug, Clone)]
 pub struct HarnessRunConfig {
     pub profile: PreprocessProfile,
+    pub engine_selection: EngineSelection,
     pub patch_size: u8,
     pub stride: u8,
+    pub bag_ngram_len: u8,
+    pub bag_vocab_size: u16,
     pub n_clauses: u16,
     pub vote_threshold: i16,
     pub states_per_action: i16,
@@ -3063,6 +3633,9 @@ pub struct HarnessRunConfig {
 /// Everything a comparison-matrix row needs from one run.
 #[derive(Debug, Clone)]
 pub struct ExperimentReport {
+    /// Which engine produced this row (taken from the live engine, so it
+    /// can never disagree with what actually ran).
+    pub engine_name_reported: &'static str,
     pub train_count: usize,
     pub test_count: usize,
     /// Accuracy at the default decision threshold V > 0.
@@ -3070,6 +3643,14 @@ pub struct ExperimentReport {
     /// The sweep row maximizing F1 (ties -> lowest threshold).
     pub best_f1_row: ThresholdSweepRow,
     pub train_seconds: f64,
+    /// Per-clause count of test documents on which the clause fired — the
+    /// S2-8 fire-rate diagnostic. Reading guide: clauses near 0 are dead
+    /// weight (never contribute a vote); clauses near `test_count` fire
+    /// indiscriminately (vote offset, not evidence); a healthy bank sits
+    /// between. This histogram is the recorded instrument for the M-Hetero
+    /// vote-imbalance risk and for deciding whether the CoTM clause-weight
+    /// arm gets pulled forward.
+    pub clause_fire_counts: Vec<u32>,
 }
 
 /// Preprocesses every document ONCE through the given profile — the
@@ -3089,17 +3670,59 @@ fn preprocess_documents(
     Ok(prepared)
 }
 
-/// Trains one `ByteConvTM` and evaluates it on the held-out set.
+/// Derives the signed vote sum from a fired-clause bitset by applying the
+/// crate-wide polarity rule: even clause index votes +1, odd votes −1.
+/// Definitionally identical to each engine's own vote computation, because
+/// both operate on the same per-clause firing results under the same
+/// polarity rule — this is what lets the harness evaluate each test
+/// document with ONE `fired_clause_bits` call instead of scanning twice
+/// (once for the vote, once for fire rates).
+fn vote_from_fired_words(
+    fired_words: &[u64],
+    clause_total: usize,
+) -> Result<i32, GranmoModelError> {
+    let mut vote: i32 = 0;
+    for clause in 0..clause_total {
+        let fired_word = fired_words
+            .get(clause >> 6)
+            .copied()
+            .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+        if fired_word & (1u64 << (clause & 63)) != 0 {
+            vote = if clause % 2 == 0 {
+                vote.checked_add(1)
+            } else {
+                vote.checked_sub(1)
+            }
+            .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+        }
+    }
+    Ok(vote)
+}
+
+/// Trains one engine and evaluates it on the held-out set.
+///
+/// Engine construction dispatches on `config.engine_selection`. For the
+/// ByteBag engine, the vocabulary is built HERE, from the PREPROCESSED
+/// TRAINING split ONLY — never from test documents. This placement is the
+/// leakage guard of record (Session 2 §6): `ByteBagTM::new_with_vocabulary`
+/// takes a finished vocabulary and cannot see corpora, and this function
+/// hands the builder only the training side.
 ///
 /// Training order is shuffled EVERY epoch (canonical fit practice: sample
 /// order decorrelation), deterministically under the run seed — one RNG
 /// stream drives shuffling and feedback, so a run is reproducible from
 /// (dataset, split seed, run config) alone.
+///
+/// Evaluation computes ONE fired-clause bitset per test document and
+/// derives from it BOTH the vote sum (hence accuracy and the threshold
+/// sweep) AND the per-clause fire-rate counts (S2-8 diagnostic) — a single
+/// evaluation pass, no double scanning. See `vote_from_fired_words` for the
+/// equivalence guarantee with the engines' own vote computation.
 pub fn run_single_experiment(
     train_documents: &[LabeledDocument],
     test_documents: &[LabeledDocument],
     config: &HarnessRunConfig,
-) -> Result<(ByteConvTM, ExperimentReport), GranmoModelError> {
+) -> Result<(ClassifierEngine, ExperimentReport), GranmoModelError> {
     if train_documents.is_empty() || test_documents.is_empty() {
         return Err(GranmoModelError::DsNoUsableRecords);
     }
@@ -3107,39 +3730,48 @@ pub fn run_single_experiment(
     let train_prepared = preprocess_documents(config.profile, train_documents)?;
     let test_prepared = preprocess_documents(config.profile, test_documents)?;
 
-    let mut engine = ByteConvTM::new(
-        PatchSize::new(config.patch_size)?,
-        StrideLen::new(config.stride)?,
-        ClauseCount::new(config.n_clauses)?,
-        VoteThreshold::new(config.vote_threshold)?,
-        StatesPerAction::new(config.states_per_action)?,
-        SpecificityThresholds::from_specificity(config.specificity)?,
-        MaxScanBytes::new(config.max_scan_bytes)?,
-        config.guarded_include,
-    )?;
+    let mut engine = match config.engine_selection {
+        EngineSelection::ByteConv => ClassifierEngine::ByteConv(ByteConvTM::new(
+            PatchSize::new(config.patch_size)?,
+            StrideLen::new(config.stride)?,
+            ClauseCount::new(config.n_clauses)?,
+            VoteThreshold::new(config.vote_threshold)?,
+            StatesPerAction::new(config.states_per_action)?,
+            SpecificityThresholds::from_specificity(config.specificity)?,
+            MaxScanBytes::new(config.max_scan_bytes)?,
+            config.guarded_include,
+        )?),
+        EngineSelection::ByteBag => {
+            // Leakage guard of record: the vocabulary builder sees ONLY the
+            // preprocessed TRAINING documents.
+            let training_document_views: Vec<&[u8]> = train_prepared
+                .iter()
+                .map(|(document, _label)| document.as_slice())
+                .collect();
+            let training_vocabulary = ByteBagVocabulary::build_from_documents(
+                NgramLength::new(config.bag_ngram_len)?,
+                VocabSize::new(config.bag_vocab_size)?,
+                &training_document_views,
+            )?;
+            ClassifierEngine::ByteBag(ByteBagTM::new_with_vocabulary(
+                training_vocabulary,
+                ClauseCount::new(config.n_clauses)?,
+                VoteThreshold::new(config.vote_threshold)?,
+                StatesPerAction::new(config.states_per_action)?,
+                SpecificityThresholds::from_specificity(config.specificity)?,
+                MaxScanBytes::new(config.max_scan_bytes)?,
+            )?)
+        }
+    };
 
     let mut rng = FastRng::seed(config.seed);
     let mut order: Vec<usize> = (0..train_prepared.len()).collect();
 
     let start = std::time::Instant::now();
     for _epoch in 0..config.epochs {
-        // Per-epoch Fisher–Yates over the index vector (documents themselves
-        // are never moved — only the visitation order).
-        let mut i = order.len();
-        while i > 1 {
-            i -= 1;
-            let j = rng.gen_index(i + 1)?;
-            order.swap(i, j);
-        }
-        // // defensive
-        // for &doc_index in &order {
-        //     let (document, label) = order
-        //         .get(0) // placeholder to satisfy borrow docs; real access below
-        //         .and_then(|_| train_prepared.get(doc_index))
-        //         .map(|(d, l)| (d, *l))
-        //         .ok_or(GranmoModelError::BctIndexOutOfRange)?;
-        //     engine.train_step(document, label, &mut rng)?;
-        // }
+        // Per-epoch shuffle of the visitation order (documents themselves
+        // are never moved — only the index order).
+        shuffle_in_place(&mut order, &mut rng)?;
         for &doc_index in &order {
             let (document, label) = train_prepared
                 .get(doc_index)
@@ -3150,12 +3782,29 @@ pub fn run_single_experiment(
     }
     let train_seconds = start.elapsed().as_secs_f64();
 
-    // Evaluation: vote sums + labels, then accuracy at V > 0 and full sweep.
+    // Evaluation pass: fired bits -> vote + fire counts (see doc above).
+    let engine_clause_total = engine.clause_count();
+    let mut clause_fire_counts: Vec<u32> = vec![0u32; engine_clause_total];
     let mut vote_sums = Vec::with_capacity(test_prepared.len());
     let mut labels = Vec::with_capacity(test_prepared.len());
     let mut correct_at_zero = 0usize;
     for (document, label) in &test_prepared {
-        let vote = engine.vote_sum(document)?;
+        let fired_words = engine.fired_clause_bits(document)?;
+        let vote = vote_from_fired_words(&fired_words, engine_clause_total)?;
+        for clause in 0..engine_clause_total {
+            let fired_word = fired_words
+                .get(clause >> 6)
+                .copied()
+                .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+            if fired_word & (1u64 << (clause & 63)) != 0 {
+                let count_slot = clause_fire_counts
+                    .get_mut(clause)
+                    .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+                *count_slot = count_slot
+                    .checked_add(1)
+                    .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+            }
+        }
         if (vote > 0) == *label {
             correct_at_zero += 1;
         }
@@ -3175,16 +3824,16 @@ pub fn run_single_experiment(
         }
     }
 
-    Ok((
-        engine,
-        ExperimentReport {
-            train_count: train_documents.len(),
-            test_count: test_documents.len(),
-            accuracy_at_zero,
-            best_f1_row,
-            train_seconds,
-        },
-    ))
+    let report = ExperimentReport {
+        engine_name_reported: engine.engine_name(),
+        train_count: train_documents.len(),
+        test_count: test_documents.len(),
+        accuracy_at_zero,
+        best_f1_row,
+        train_seconds,
+        clause_fire_counts,
+    };
+    Ok((engine, report))
 }
 
 // ===========================================================================
@@ -3202,8 +3851,11 @@ struct CliArgs {
     label_key: String,
     positive_label: String,
     preset_name: String,
+    engine_selection: EngineSelection,
     patch_size: u8,
     stride: u8,
+    bag_ngram_len: u8,
+    bag_vocab_size: u16,
     n_clauses: u16,
     vote_threshold: i16,
     states_per_action: i16,
@@ -3236,6 +3888,21 @@ fn preset_from_name(name: &str) -> Result<PreprocessProfile, GranmoModelError> {
     }
 }
 
+/// Maps an `--engine` value to its selection (fail-fast: rejected at parse
+/// time, never downstream). Names match `ClassifierEngine::engine_name`
+/// exactly, so CLI input, run labels, and report rows use one spelling.
+fn engine_selection_from_name(name: &str) -> Result<EngineSelection, GranmoModelError> {
+    match name {
+        "byte-conv" => Ok(EngineSelection::ByteConv),
+        "byte-bag" => Ok(EngineSelection::ByteBag),
+        _other => {
+            #[cfg(debug_assertions)]
+            eprintln!("CLI-806: unknown engine '{}'", _other);
+            Err(GranmoModelError::CliUnknownEngine)
+        }
+    }
+}
+
 /// Parses one numeric flag value; malformed input is a hard error attributed
 /// to the flag (debug builds name the flag and value; production returns
 /// only the code).
@@ -3251,8 +3918,9 @@ fn parse_flag_number<T: std::str::FromStr>(_flag: &str, raw: &str) -> Result<T, 
 }
 
 impl CliArgs {
-    /// Defaults mirror the specification of record: K=5, S=2, 200 clauses,
-    /// T=50, N=100, s=5.0, preset p0, 25 epochs, seed 42, 80/20 split.
+    /// Defaults mirror the specification of record: engine byte-conv, K=5,
+    /// S=2, bag n=5, bag M=4000, 200 clauses, T=50, N=100, s=5.0, preset
+    /// p0, 25 epochs, seed 42, 80/20 split.
     fn parse(args: &[String]) -> Result<Self, GranmoModelError> {
         let mut parsed = Self {
             mode: String::new(),
@@ -3261,8 +3929,11 @@ impl CliArgs {
             label_key: "label".to_string(),
             positive_label: "1".to_string(),
             preset_name: "p0".to_string(),
+            engine_selection: EngineSelection::ByteConv,
             patch_size: 5,
             stride: 2,
+            bag_ngram_len: 5,
+            bag_vocab_size: 4000,
             n_clauses: 200,
             vote_threshold: 50,
             states_per_action: 100,
@@ -3309,11 +3980,22 @@ impl CliArgs {
                     parsed.positive_label = take_value(args, &mut i, flag)?.to_string()
                 }
                 "--preset" => parsed.preset_name = take_value(args, &mut i, flag)?.to_string(),
+                "--engine" => {
+                    parsed.engine_selection =
+                        engine_selection_from_name(take_value(args, &mut i, flag)?)?
+                }
                 "--patch" => {
                     parsed.patch_size = parse_flag_number(flag, take_value(args, &mut i, flag)?)?
                 }
                 "--stride" => {
                     parsed.stride = parse_flag_number(flag, take_value(args, &mut i, flag)?)?
+                }
+                "--ngram-len" => {
+                    parsed.bag_ngram_len = parse_flag_number(flag, take_value(args, &mut i, flag)?)?
+                }
+                "--vocab-size" => {
+                    parsed.bag_vocab_size =
+                        parse_flag_number(flag, take_value(args, &mut i, flag)?)?
                 }
                 "--clauses" => {
                     parsed.n_clauses = parse_flag_number(flag, take_value(args, &mut i, flag)?)?
@@ -3369,8 +4051,11 @@ impl CliArgs {
     fn to_run_config(&self) -> Result<HarnessRunConfig, GranmoModelError> {
         Ok(HarnessRunConfig {
             profile: preset_from_name(&self.preset_name)?,
+            engine_selection: self.engine_selection,
             patch_size: self.patch_size,
             stride: self.stride,
+            bag_ngram_len: self.bag_ngram_len,
+            bag_vocab_size: self.bag_vocab_size,
             n_clauses: self.n_clauses,
             vote_threshold: self.vote_threshold,
             states_per_action: self.states_per_action,
@@ -3389,20 +4074,63 @@ fn print_help() {
     println!("Dataset format: JSONL only — one JSON object per line with");
     println!("  a \"text\" string field and a \"label\" field (string or number).");
     println!("TRAIN:   --mode train --data /abs/path.jsonl [options]");
-    println!("BATCH:   --mode batch --data /abs/path.jsonl [options]  (presets raw,p0,p1,p2)");
+    println!("BATCH:   --mode batch --data /abs/path.jsonl [options]");
+    println!("         (comparison matrix: presets raw,p0,p1,p2 x engines");
+    println!("          byte-conv,byte-bag on ONE identical split and seed)");
     println!("PREDICT: --mode predict --model-in /abs/model.gmb --text \"...\"");
     println!("Options (defaults):");
     println!("  --text-key text | --label-key label | --positive-label 1");
-    println!("  --preset p0 (raw|p0..p5) | --patch 5 | --stride 2 | --clauses 200");
-    println!("  --vote-threshold 50 | --states 100 | --specificity 5.0");
-    println!("  --max-scan 1024 | --guarded | --epochs 25 | --seed 42");
+    println!("  --preset p0 (raw|p0..p5) | --engine byte-conv (byte-conv|byte-bag)");
+    println!("  --patch 5 | --stride 2 | --guarded          (byte-conv only)");
+    println!("  --ngram-len 5 | --vocab-size 4000           (byte-bag only)");
+    println!("  --clauses 200 | --vote-threshold 50 | --states 100");
+    println!("  --specificity 5.0 | --max-scan 1024 | --epochs 25 | --seed 42");
     println!("  --train-percent 80 | --model-out /abs/path.gmb");
+}
+
+/// Formats the S2-8 fire-rate diagnostic as one compact line: counts of
+/// never-firing clauses (dead weight) and always-firing clauses (vote
+/// offset, not evidence), plus the 25th/50th/75th percentile fire rates
+/// as percentages of the test set. Reporting tier: floats and heap are
+/// permitted here. The raw per-clause counts remain available in
+/// `ExperimentReport::clause_fire_counts` for deeper offline analysis.
+fn summarize_fire_counts(clause_fire_counts: &[u32], test_count: usize) -> String {
+    if clause_fire_counts.is_empty() || test_count == 0 {
+        return "fire-rate: (no data)".to_string();
+    }
+    let clause_total = clause_fire_counts.len();
+    let never_fired = clause_fire_counts.iter().filter(|&&c| c == 0).count();
+    let always_fired = clause_fire_counts
+        .iter()
+        .filter(|&&c| c as usize == test_count)
+        .count();
+    let mut sorted_counts: Vec<u32> = clause_fire_counts.to_vec();
+    sorted_counts.sort_unstable();
+    let percentile_rate = |numerator: usize, denominator: usize| -> f64 {
+        let index = (sorted_counts.len().saturating_sub(1)) * numerator / denominator;
+        let count_at_index = sorted_counts.get(index).copied().unwrap_or(0);
+        100.0 * f64::from(count_at_index) / test_count as f64
+    };
+    format!(
+        "fire-rate over {} test docs: never {}/{}  always {}/{}  p25 {:.1}%  median {:.1}%  p75 {:.1}%",
+        test_count,
+        never_fired,
+        clause_total,
+        always_fired,
+        clause_total,
+        percentile_rate(1, 4),
+        percentile_rate(1, 2),
+        percentile_rate(3, 4)
+    )
 }
 
 /// Prints one experiment report (reporting tier: println is this code's
 /// output channel, not a diagnostic leak).
 fn print_experiment_report(run_label: &str, report: &ExperimentReport) {
-    println!("--- run: {run_label} ---");
+    println!(
+        "--- run: {run_label} [engine: {}] ---",
+        report.engine_name_reported
+    );
     println!(
         "  train/test: {}/{}   train time: {:.2}s",
         report.train_count, report.test_count, report.train_seconds
@@ -3419,6 +4147,10 @@ fn print_experiment_report(run_label: &str, report: &ExperimentReport) {
         best.false_positives,
         best.true_negatives,
         best.false_negatives
+    );
+    println!(
+        "  {}",
+        summarize_fire_counts(&report.clause_fire_counts, report.test_count)
     );
 }
 
@@ -3456,9 +4188,12 @@ fn handle_train(args: &CliArgs) -> Result<(), GranmoModelError> {
     Ok(())
 }
 
-/// Batch mode: the §5 priority presets (raw, P0, P1, P2) on ONE identical
-/// split with ONE identical training seed — the controlled-comparison
-/// discipline of §8 made executable as a single command.
+/// Batch mode — the §8 comparison-matrix command: the priority presets
+/// (raw, P0, P1, P2) × BOTH engines, on ONE identical split with ONE
+/// identical training seed. Eight runs whose rows differ only in the two
+/// labeled variables (preprocessing preset, engine) — the controlled
+/// comparison that §8's success criteria and the S2-7 three-way diagnostic
+/// are judged on.
 fn handle_batch(args: &CliArgs) -> Result<(), GranmoModelError> {
     let data_path = args
         .data_path
@@ -3480,10 +4215,14 @@ fn handle_batch(args: &CliArgs) -> Result<(), GranmoModelError> {
     );
 
     for preset_name in ["raw", "p0", "p1", "p2"] {
-        let mut run_config = args.to_run_config()?;
-        run_config.profile = preset_from_name(preset_name)?;
-        let (_engine, report) = run_single_experiment(&train_side, &test_side, &run_config)?;
-        print_experiment_report(preset_name, &report);
+        for engine_selection_choice in [EngineSelection::ByteConv, EngineSelection::ByteBag] {
+            let mut run_config = args.to_run_config()?;
+            run_config.profile = preset_from_name(preset_name)?;
+            run_config.engine_selection = engine_selection_choice;
+            let (_trained_engine, report) =
+                run_single_experiment(&train_side, &test_side, &run_config)?;
+            print_experiment_report(preset_name, &report);
+        }
     }
     Ok(())
 }
@@ -3503,11 +4242,13 @@ fn handle_predict(args: &CliArgs) -> Result<(), GranmoModelError> {
     let mut preprocessor = BytePreprocessor::new(artifact.preprocess_profile)?;
     let processed = preprocessor.process_document(text.as_bytes())?;
 
+    // Engine-agnostic surface: vote, probability, label.
     let vote = artifact.engine.vote_sum(&processed)?;
     let lut = artifact.engine.build_probability_lut()?;
     let probability = lut.probability_for_report(vote)?;
     let label = vote > 0;
 
+    println!("engine: {}", artifact.engine.engine_name());
     println!(
         "prediction: {}",
         if label {
@@ -3518,51 +4259,57 @@ fn handle_predict(args: &CliArgs) -> Result<(), GranmoModelError> {
     );
     println!("vote sum V = {vote}, probability {probability:.4}");
 
-    // Explainability trace: fired clauses with decoded byte patterns and
-    // source-span offsets INTO THE PREPROCESSED byte stream (§7.3).
-    let mut rules_printed = 0usize;
-    for clause in 0..artifact.engine.clause_count() {
-        if rules_printed >= 10 {
-            break;
+    // Explainability trace — engine-specific by nature: the conv engine
+    // reports byte-offset window spans (positional evidence); the bag has
+    // no positional structure, so it reports fired clauses decoded as
+    // shingle patterns only. This asymmetry is the models' actual
+    // difference, surfaced honestly rather than papered over.
+    match &artifact.engine {
+        ClassifierEngine::ByteConv(conv_engine) => {
+            let mut rules_printed = 0usize;
+            for clause in 0..conv_engine.clause_count() {
+                if rules_printed >= 10 {
+                    break;
+                }
+                let positions = conv_engine.fired_window_positions(clause, &processed)?;
+                if positions.is_empty() {
+                    continue;
+                }
+                let pattern = conv_engine.describe_clause(clause, 12)?;
+                if pattern.is_empty() {
+                    continue; // empty clause fires everywhere; not a meaningful rule
+                }
+                let polarity = if clause % 2 == 0 { "+" } else { "-" };
+                println!("  [clause {clause} ({polarity})] {pattern} @ byte offsets {positions:?}");
+                rules_printed += 1;
+            }
         }
-        let positions = artifact.engine.fired_window_positions(clause, &processed)?;
-        if positions.is_empty() {
-            continue;
+        ClassifierEngine::ByteBag(bag_engine) => {
+            let fired_words = bag_engine.bag_fired_clause_bits(&processed)?;
+            let mut rules_printed = 0usize;
+            for clause in 0..bag_engine.bag_clause_count() {
+                if rules_printed >= 10 {
+                    break;
+                }
+                let fired_word = fired_words
+                    .get(clause >> 6)
+                    .copied()
+                    .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+                if fired_word & (1u64 << (clause & 63)) == 0 {
+                    continue;
+                }
+                let pattern = bag_engine.bag_describe_clause(clause, 12)?;
+                if pattern.is_empty() {
+                    continue; // empty clause fires everywhere; not a meaningful rule
+                }
+                let polarity = if clause % 2 == 0 { "+" } else { "-" };
+                println!("  [clause {clause} ({polarity})] {pattern}");
+                rules_printed += 1;
+            }
         }
-        let pattern = artifact.engine.describe_clause(clause, 12)?;
-        if pattern.is_empty() {
-            continue; // empty clause fires everywhere; not a meaningful rule
-        }
-        let polarity = if clause % 2 == 0 { "+" } else { "-" };
-        println!("  [clause {clause} ({polarity})] {pattern} @ byte offsets {positions:?}");
-        rules_printed += 1;
     }
     Ok(())
 }
-
-// ===========================================================================
-// SECTION 12: M-ByteBag — Byte-N-Gram Vocabulary (flat-baseline foundation)
-// ===========================================================================
-//
-// Scientific role (§8): the flat bag-of-byte-n-grams model is THE control
-// that isolates "sub-word granularity" from "convolution." It shares the
-// preprocessor, dataset loader, splitter, RNG, and sweep with ByteConvTM,
-// so the two models differ in exactly one variable: positional windowing.
-//
-// This section provides the vocabulary layer only; the flat engine
-// (ByteBagTM) builds on it in the next section. Design decisions of record:
-// - Shingles are OVERLAPPING, STRIDE 1 (stride is a convolution concept;
-//   a bag wants full coverage — this is not a tunable).
-// - Documents shorter than n yield exactly ONE right-0x00-padded shingle,
-//   consistent with the conv model's PAD rule (locked decision §10.4).
-// - Vocabulary = the top-M most frequent shingles of the TRAINING split,
-//   ordered deterministically: count DESCENDING, then bytes ASCENDING as
-//   the tiebreak — identical corpus + config always yields an identical,
-//   machine-independent vocabulary (the §8 reproducibility requirement).
-// - Shingles outside the vocabulary are simply absent features (no OOV
-//   token). The bag's coverage loss vs. the conv model's total coverage is
-//   part of what the experiment measures — hiding it would corrupt the
-//   comparison.
 
 /// Compile-time ceiling for shingle length, tied to `NgramLength::MAX`;
 /// sized so a padded shingle fits a fixed stack buffer (no heap in the
@@ -3669,6 +4416,28 @@ impl ByteBagVocabulary {
         Ok(vocabulary)
     }
 
+    /// Reconstructs a vocabulary from its persisted rank-ordered flat bytes
+    /// (artifact kind-3 load path). The flat storage is the ONLY persisted
+    /// vocabulary data; the byte-sorted lookup order is rebuilt here and
+    /// never trusted from disk (derived-data rule). Structural validation —
+    /// whole-shingle divisibility, nonzero count, strict byte ordering
+    /// (which doubles as duplicate detection) — runs inside
+    /// `rebuild_lookup_order` via `validity_recheck`, so a tampered or
+    /// corrupt vocabulary payload is rejected at reconstruction.
+    pub fn from_flat_bytes(
+        ngram_len: NgramLength,
+        flat_bytes: Vec<u8>,
+    ) -> Result<Self, GranmoModelError> {
+        let n = usize::from(ngram_len.get()?);
+        let mut restored = Self {
+            ngram_len: n,
+            ngram_flat_bytes: flat_bytes,
+            lookup_order: Vec::new(),
+        };
+        restored.rebuild_lookup_order()?;
+        Ok(restored)
+    }
+
     /// Number of shingles in the vocabulary (may be < requested M).
     pub fn vocabulary_len(&self) -> usize {
         // Integer division is total; a corrupt flat length is caught by
@@ -3723,7 +4492,7 @@ impl ByteBagVocabulary {
             }
         });
         self.lookup_order = order;
-        self.validity_recheck()
+        self.vocab_validity_recheck()
     }
 
     /// Binary-search lookup: shingle bytes -> rank (feature index).
@@ -3810,7 +4579,7 @@ impl ByteBagVocabulary {
     /// rank and STRICTLY ascending by shingle bytes (strictness also proves
     /// no duplicate shingles — impossible from construction, so a duplicate
     /// means corruption). Call at construction, artifact load, or on demand.
-    pub fn validity_recheck(&self) -> Result<(), GranmoModelError> {
+    pub fn vocab_validity_recheck(&self) -> Result<(), GranmoModelError> {
         if self.ngram_len < usize::from(NgramLength::MIN)
             || self.ngram_len > usize::from(NgramLength::MAX)
         {
@@ -3841,6 +4610,825 @@ impl ByteBagVocabulary {
             previous = Some(bytes);
         }
         Ok(())
+    }
+}
+
+// ===========================================================================
+// SECTION 12B: ByteBagTM — Flat Bag-of-Byte-N-Grams Granmo Model (M-ByteBag)
+// ===========================================================================
+//
+// Scientific role (§8): THE control engine. It shares the preprocessor,
+// dataset loader, splitter, RNG, threshold sweep, and the shared
+// `resolve_feedback_gates` helper with ByteConvTM, so the two engines
+// differ in exactly one variable: positional windowing (the bag has none).
+//
+// NAMING CONVENTION (project rule: globally unique names): every method,
+// helper, field, and associated function of this engine carries the `bag_`
+// prefix (constructor: `new_with_vocabulary`). No name in this section
+// exists anywhere else in the crate.
+//
+// Structure of record (Session 2 §3, locked decisions):
+// - Single flat clause bank; even clause index = +1 polarity, odd = −1
+//   (same polarity scheme as the conv engine).
+// - Per clause, 2 × M automata over presence literals, where M is the
+//   ACTUAL vocabulary size: local literal index r in [0, M) is the
+//   positive literal "vocabulary shingle r IS present in the document";
+//   local index M + r is its negated twin "shingle r is ABSENT".
+//   States are i16 in [1, 2N]; a literal is included iff state > N; ALL
+//   state changes route through `bag_increment_automaton` /
+//   `bag_decrement_automaton` so the mask caches cannot drift (the same
+//   cache-integrity pattern as the conv engine's transitions).
+// - Derived evaluation caches (design commitment): per clause, two M-bit
+//   include masks (positive and negated), maintained by exact bit set/clear
+//   on include/exclude boundary crossings. A clause fires on a document iff
+//     (positive_mask AND NOT presence_bits) == 0   [every required shingle
+//                                                   is present]  AND
+//     (negated_mask  AND     presence_bits) == 0   [no forbidden shingle
+//                                                   is present]
+//   evaluated word-parallel over u64 words — integer-only, allocation-free
+//   given the document's presence bitset.
+// - Feedback: Phase-1 FLAT semantics — no window sampling, no reservoir
+//   (no positional structure exists). Type Ia: true literals reinforce at
+//   the reinforce coin, false literals decay at the forget coin. Type Ib:
+//   input-independent 1/s decay over all literals. Type II: increment
+//   every FALSE literal (deterministic). The (T∓V)/2T vote gate is the
+//   SHARED `resolve_feedback_gates` (Section 5C) — byte-identical training
+//   mechanics to the conv engine, per the §8 control discipline.
+// - GuardedInclude does NOT apply and is deliberately absent: a bag has no
+//   per-slot categorical exclusivity, hence no structurally dead joint
+//   states — that absence is itself the S2-7 three-way diagnostic control.
+// - P4-tier properties (depth, specificity coins) are read through
+//   per-clause accessors (`bag_depth_for_clause` etc.), scalar-backed
+//   today — the same M-Hetero seam as the conv engine (S2-9 requirement).
+//
+// Tier notes: `bag_train_step` allocates one presence bitset and one
+// fired-flag Vec per step; `bag_vote_sum` allocates one presence bitset
+// per document (feature extraction). Documented harness-tier allocations —
+// a production inference path may later accept a caller-provided reusable
+// buffer (backlog; not needed for the §8 experiments).
+
+/// The flat bag-of-byte-n-grams Granmo Model — the §8 scientific control.
+/// See the section banner above for the full structure of record.
+#[derive(Debug, Clone)]
+pub struct ByteBagTM {
+    /// The learned vocabulary (built from the preprocessed TRAINING split
+    /// ONLY — the leakage guard is the harness's responsibility). Owned:
+    /// the vocabulary is part of the model and travels with it.
+    bag_vocabulary: ByteBagVocabulary,
+    /// Total clauses; even = positive polarity, odd = negative.
+    bag_clause_total: usize,
+    /// T, as i32 for clamp/gate arithmetic (shared gate helper input).
+    bag_vote_target: i32,
+    /// N: automaton depth per action; states live in [1, 2N].
+    bag_automaton_depth: i16,
+    /// P(forget) coin threshold ≈ 65536 × 1/s.
+    bag_forget_coin_threshold: u16,
+    /// P(reinforce) coin threshold ≈ 65536 × (s−1)/s.
+    bag_reinforce_coin_threshold: u16,
+    /// Document scan cap in bytes (applied inside feature extraction).
+    bag_scan_cap_bytes: usize,
+    /// Raw automaton states: `clause * (2M) + local_literal`.
+    bag_ta_states: Vec<i16>,
+    /// Positive-include masks: `clause * words_per_clause + word`; bit r
+    /// set iff positive literal r is included. Derived data — rebuilt or
+    /// validated from raw states, never independently trusted.
+    bag_positive_include_masks: Vec<u64>,
+    /// Negated-include masks, same layout: bit r set iff negated literal
+    /// (M + r) is included.
+    bag_negated_include_masks: Vec<u64>,
+}
+
+impl ByteBagTM {
+    /// Constructs a fresh engine around an already-built vocabulary.
+    ///
+    /// The constructor TAKES the vocabulary (rather than building it) to
+    /// make the train-split-only rule structural: the harness builds the
+    /// vocabulary from preprocessed TRAINING documents and hands it over;
+    /// this engine never sees raw corpora. The vocabulary is structurally
+    /// revalidated here (value-integrity rule) so a corrupt vocabulary
+    /// cannot silently configure a mis-sized engine.
+    ///
+    /// Fresh state: every automaton at the exclude boundary (state == N),
+    /// hence zero includes, all-zero masks, and every clause fires on every
+    /// document (vacuous conjunction) — with balanced polarities the fresh
+    /// vote sum is exactly 0, mirroring the conv engine's fresh invariant.
+    pub fn new_with_vocabulary(
+        vocabulary_for_engine: ByteBagVocabulary,
+        clauses: ClauseCount,
+        vote_target: VoteThreshold,
+        automaton_depth: StatesPerAction,
+        specificity: SpecificityThresholds,
+        scan_cap: MaxScanBytes,
+    ) -> Result<Self, GranmoModelError> {
+        vocabulary_for_engine.vocab_validity_recheck()?;
+
+        let resolved_clause_count = usize::from(clauses.get()?);
+        let resolved_vote_target = i32::from(vote_target.get()?);
+        let resolved_depth = automaton_depth.get()?;
+        let (resolved_forget, resolved_reinforce) = specificity.get()?;
+        let resolved_scan_cap = scan_cap.get()? as usize;
+
+        // Sizing. validity_recheck guarantees vocabulary_len() >= 1.
+        let feature_count = vocabulary_for_engine.vocabulary_len();
+        let literal_count_per_clause = feature_count
+            .checked_mul(2)
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+        let total_state_count = resolved_clause_count
+            .checked_mul(literal_count_per_clause)
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+        let mask_words_for_features = feature_count
+            .checked_add(63)
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?
+            / 64;
+        let total_mask_words = resolved_clause_count
+            .checked_mul(mask_words_for_features)
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+
+        Ok(Self {
+            bag_vocabulary: vocabulary_for_engine,
+            bag_clause_total: resolved_clause_count,
+            bag_vote_target: resolved_vote_target,
+            bag_automaton_depth: resolved_depth,
+            bag_forget_coin_threshold: resolved_forget,
+            bag_reinforce_coin_threshold: resolved_reinforce,
+            bag_scan_cap_bytes: resolved_scan_cap,
+            bag_ta_states: vec![resolved_depth; total_state_count],
+            bag_positive_include_masks: vec![0u64; total_mask_words],
+            bag_negated_include_masks: vec![0u64; total_mask_words],
+        })
+    }
+
+    // --- Layout helpers -----------------------------------------------------
+
+    /// M: the actual vocabulary size. Derived from the vocabulary on every
+    /// call (one integer division) rather than cached — no second source of
+    /// truth exists, so no cache-consistency check is needed for it.
+    #[inline(always)]
+    fn bag_feature_count(&self) -> usize {
+        self.bag_vocabulary.vocabulary_len()
+    }
+
+    /// 2M literals per clause. Plain arithmetic is safe: M <= 65000
+    /// (`VocabSize::MAX`), so 2M <= 130000, far inside usize.
+    #[inline(always)]
+    fn bag_literals_per_clause(&self) -> usize {
+        2 * self.bag_feature_count()
+    }
+
+    /// Mask words per clause = ceil(M / 64). Plain arithmetic is safe:
+    /// M + 63 <= 65063, far inside usize.
+    #[inline(always)]
+    fn bag_mask_words_per_clause(&self) -> usize {
+        (self.bag_feature_count() + 63) / 64
+    }
+
+    /// Global state index for (clause, local literal), fully bounds-checked
+    /// including the local-literal range (prevents cross-clause bleed).
+    fn bag_state_index(
+        &self,
+        clause: usize,
+        local_literal: usize,
+    ) -> Result<usize, GranmoModelError> {
+        if clause >= self.bag_clause_total || local_literal >= self.bag_literals_per_clause() {
+            return Err(GranmoModelError::BbgEngineIndexOutOfRange);
+        }
+        let clause_base = clause
+            .checked_mul(self.bag_literals_per_clause())
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+        let state_index = clause_base
+            .checked_add(local_literal)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+        if state_index >= self.bag_ta_states.len() {
+            return Err(GranmoModelError::BbgEngineIndexOutOfRange);
+        }
+        Ok(state_index)
+    }
+
+    /// The [start, end) word range of one clause's masks (both mask arrays
+    /// share this layout), bounds-checked against both arrays.
+    fn bag_mask_word_range(&self, clause: usize) -> Result<(usize, usize), GranmoModelError> {
+        if clause >= self.bag_clause_total {
+            return Err(GranmoModelError::BbgEngineIndexOutOfRange);
+        }
+        let words = self.bag_mask_words_per_clause();
+        let range_start = clause
+            .checked_mul(words)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+        let range_end = range_start
+            .checked_add(words)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+        if range_end > self.bag_positive_include_masks.len()
+            || range_end > self.bag_negated_include_masks.len()
+        {
+            return Err(GranmoModelError::BbgEngineIndexOutOfRange);
+        }
+        Ok((range_start, range_end))
+    }
+
+    /// Reads one presence bit from a document's presence bitset.
+    #[inline(always)]
+    fn bag_presence_bit(presence_bits: &[u64], rank: usize) -> Result<bool, GranmoModelError> {
+        let word = presence_bits
+            .get(rank >> 6)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+        Ok(word & (1u64 << (rank & 63)) != 0)
+    }
+
+    // --- Per-clause P4-property accessors (M-Hetero accommodation) ---------
+    //
+    // Same seam as the conv engine's accessors (S2-9 requirement): today
+    // scalar-backed (homogeneous team); under a future TeamCompositionPalette
+    // only these bodies, the constructor, and the artifact format grow.
+    // No guard accessor exists: GuardedInclude does not apply to a bag.
+
+    /// Automaton depth N for this clause's team (states live in [1, 2N]).
+    #[inline(always)]
+    fn bag_depth_for_clause(&self, _clause: usize) -> i16 {
+        self.bag_automaton_depth
+    }
+
+    /// P(forget) coin threshold for this clause.
+    #[inline(always)]
+    fn bag_forget_threshold_for_clause(&self, _clause: usize) -> u16 {
+        self.bag_forget_coin_threshold
+    }
+
+    /// P(reinforce) coin threshold for this clause.
+    #[inline(always)]
+    fn bag_reinforce_threshold_for_clause(&self, _clause: usize) -> u16 {
+        self.bag_reinforce_coin_threshold
+    }
+
+    // --- Feature extraction ---------------------------------------------------
+
+    /// Extracts the document's presence bitset through the engine's own
+    /// vocabulary and scan cap. Called ONCE per document per training step
+    /// and once per inference (locked decision, Session 2 §3).
+    fn bag_document_presence_bits(&self, document: &[u8]) -> Result<Vec<u64>, GranmoModelError> {
+        self.bag_vocabulary
+            .extract_presence_bits(document, self.bag_scan_cap_bytes)
+    }
+
+    // --- Clause evaluation (integer-only, word-parallel) ----------------------
+
+    /// Does `clause` fire on this presence bitset? Word-parallel test of
+    /// both include masks; see the section banner for the firing condition.
+    /// A presence bitset of the wrong word count is a wiring error (bits
+    /// produced by a different vocabulary), reported not tolerated.
+    fn bag_clause_fires(
+        &self,
+        clause: usize,
+        presence_bits: &[u64],
+    ) -> Result<bool, GranmoModelError> {
+        let (range_start, range_end) = self.bag_mask_word_range(clause)?;
+        let positive_words = self
+            .bag_positive_include_masks
+            .get(range_start..range_end)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+        let negated_words = self
+            .bag_negated_include_masks
+            .get(range_start..range_end)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+        if presence_bits.len() != positive_words.len() {
+            return Err(GranmoModelError::BbgEngineIndexOutOfRange);
+        }
+        for ((&positive_word, &negated_word), &document_word) in positive_words
+            .iter()
+            .zip(negated_words.iter())
+            .zip(presence_bits.iter())
+        {
+            // A required shingle is absent, or a forbidden shingle present.
+            if positive_word & !document_word != 0 {
+                return Ok(false);
+            }
+            if negated_word & document_word != 0 {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    // --- Public inference surface ----------------------------------------------
+
+    /// Signed vote sum V = Σ fired(+) − Σ fired(−) over the flat bank.
+    pub fn bag_vote_sum(&self, document: &[u8]) -> Result<i32, GranmoModelError> {
+        let presence_bits = self.bag_document_presence_bits(document)?;
+        let mut vote: i32 = 0;
+        for clause in 0..self.bag_clause_total {
+            if self.bag_clause_fires(clause, &presence_bits)? {
+                vote = if clause % 2 == 0 {
+                    vote.checked_add(1)
+                } else {
+                    vote.checked_sub(1)
+                }
+                .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+            }
+        }
+        Ok(vote)
+    }
+
+    /// Binary prediction: label 1 iff `V > decision_threshold` (same free
+    /// sweep axis as the conv engine, §8).
+    pub fn bag_predict(
+        &self,
+        document: &[u8],
+        decision_threshold: i32,
+    ) -> Result<bool, GranmoModelError> {
+        Ok(self.bag_vote_sum(document)? > decision_threshold)
+    }
+
+    /// The fired-clause bitset — the same embedding deliverable (§7.2) and
+    /// fire-rate-report input (S2-8) as the conv engine's version.
+    pub fn bag_fired_clause_bits(&self, document: &[u8]) -> Result<Vec<u64>, GranmoModelError> {
+        let presence_bits = self.bag_document_presence_bits(document)?;
+        let fired_word_count = self
+            .bag_clause_total
+            .checked_add(63)
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?
+            / 64;
+        let mut fired_words = vec![0u64; fired_word_count];
+        for clause in 0..self.bag_clause_total {
+            if self.bag_clause_fires(clause, &presence_bits)? {
+                let word = fired_words
+                    .get_mut(clause >> 6)
+                    .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+                *word |= 1u64 << (clause & 63);
+            }
+        }
+        Ok(fired_words)
+    }
+
+    /// Decodes one clause into a human-readable shingle pattern, e.g.
+    /// `has "ab" ∧ lacks "ba"`. Printable bytes render as chars, others as
+    /// `\xHH` — the same convention as the conv engine's decoder, decoded
+    /// through `ngram_at_rank` (the explainability primitive). Rendering is
+    /// capped; the overflow count is reported.
+    pub fn bag_describe_clause(
+        &self,
+        clause: usize,
+        max_rendered_literals: usize,
+    ) -> Result<String, GranmoModelError> {
+        if clause >= self.bag_clause_total {
+            return Err(GranmoModelError::BbgEngineIndexOutOfRange);
+        }
+        let clause_depth = self.bag_depth_for_clause(clause);
+        let feature_count = self.bag_feature_count();
+
+        /// Renders shingle bytes: printable ASCII as chars, others as \xHH.
+        fn render_shingle_bytes(shingle: &[u8]) -> String {
+            let mut rendered = String::with_capacity(shingle.len() * 4);
+            for &byte_value in shingle {
+                if (0x20..=0x7E).contains(&byte_value) {
+                    rendered.push(byte_value as char);
+                } else {
+                    rendered.push_str(&format!("\\x{:02X}", byte_value));
+                }
+            }
+            rendered
+        }
+
+        let mut parts: Vec<String> = Vec::new();
+        let mut omitted: usize = 0;
+        for rank in 0..feature_count {
+            // Negated twin lives at M + rank; sums stay far inside usize
+            // (M <= 65000) and bag_state_index re-validates the range.
+            let positive_state = *self
+                .bag_ta_states
+                .get(self.bag_state_index(clause, rank)?)
+                .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+            let negated_state = *self
+                .bag_ta_states
+                .get(self.bag_state_index(clause, feature_count + rank)?)
+                .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+
+            if positive_state > clause_depth {
+                if parts.len() < max_rendered_literals {
+                    let shingle = self.bag_vocabulary.ngram_at_rank(rank)?;
+                    parts.push(format!("has \"{}\"", render_shingle_bytes(shingle)));
+                } else {
+                    omitted = omitted.saturating_add(1);
+                }
+            }
+            if negated_state > clause_depth {
+                if parts.len() < max_rendered_literals {
+                    let shingle = self.bag_vocabulary.ngram_at_rank(rank)?;
+                    parts.push(format!("lacks \"{}\"", render_shingle_bytes(shingle)));
+                } else {
+                    omitted = omitted.saturating_add(1);
+                }
+            }
+        }
+
+        let mut rendered = parts.join(" ∧ ");
+        if omitted > 0 {
+            rendered.push_str(&format!(" … (+{} more literals)", omitted));
+        }
+        Ok(rendered)
+    }
+
+    /// Clause count (reporting; LUT sizing).
+    pub fn bag_clause_count(&self) -> usize {
+        self.bag_clause_total
+    }
+
+    /// Read access to the vocabulary (harness explainability / reporting).
+    pub fn bag_vocabulary_ref(&self) -> &ByteBagVocabulary {
+        &self.bag_vocabulary
+    }
+
+    /// Probability LUT matched to THIS engine's clause count and vote
+    /// target, routed through the enforced newtypes exactly as the conv
+    /// engine's LUT builder is (value-integrity rule).
+    pub fn bag_build_probability_lut(&self) -> Result<ProbabilityLut, GranmoModelError> {
+        let clause_count_u16 = u16::try_from(self.bag_clause_total)
+            .map_err(|_| GranmoModelError::BbgEngineIndexOutOfRange)?;
+        let vote_target_i16 = i16::try_from(self.bag_vote_target)
+            .map_err(|_| GranmoModelError::BbgEngineIndexOutOfRange)?;
+        ProbabilityLut::build(
+            ClauseCount::new(clause_count_u16)?,
+            VoteThreshold::new(vote_target_i16)?,
+        )
+    }
+
+    // --- Mask maintenance -------------------------------------------------------
+
+    /// Sets or clears the include-mask bit for one literal. Called ONLY
+    /// from the two transition methods on boundary crossings — the exact
+    /// analogue of the conv engine's mask recompute discipline, except a
+    /// bag crossing maps to a single bit, so set/clear is exact.
+    fn bag_set_include_bit(
+        &mut self,
+        clause: usize,
+        local_literal: usize,
+        included: bool,
+    ) -> Result<(), GranmoModelError> {
+        let feature_count = self.bag_feature_count();
+        let (range_start, _range_end) = self.bag_mask_word_range(clause)?;
+        let (rank, is_positive_literal) = if local_literal < feature_count {
+            (local_literal, true)
+        } else {
+            (local_literal - feature_count, false)
+        };
+        if rank >= feature_count {
+            return Err(GranmoModelError::BbgEngineIndexOutOfRange);
+        }
+        let word_index = range_start
+            .checked_add(rank >> 6)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+        let target_masks = if is_positive_literal {
+            &mut self.bag_positive_include_masks
+        } else {
+            &mut self.bag_negated_include_masks
+        };
+        let word = target_masks
+            .get_mut(word_index)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+        if included {
+            *word |= 1u64 << (rank & 63);
+        } else {
+            *word &= !(1u64 << (rank & 63));
+        }
+        Ok(())
+    }
+
+    // --- Automaton transitions (ALL state changes route through these) -----------
+
+    /// Increments one automaton state (saturating at 2N), setting the
+    /// include-mask bit on an exclude→include boundary crossing.
+    fn bag_increment_automaton(
+        &mut self,
+        clause: usize,
+        local_literal: usize,
+    ) -> Result<(), GranmoModelError> {
+        let clause_depth = self.bag_depth_for_clause(clause);
+        let saturation_ceiling = clause_depth
+            .checked_mul(2)
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+        let state_index = self.bag_state_index(clause, local_literal)?;
+        let current_state = *self
+            .bag_ta_states
+            .get(state_index)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+
+        if current_state >= saturation_ceiling {
+            return Ok(()); // saturated deep-include; no change
+        }
+
+        let updated_state = current_state
+            .checked_add(1)
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+        *self
+            .bag_ta_states
+            .get_mut(state_index)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)? = updated_state;
+
+        // Crossing exclude→include: the OLD state was exactly N.
+        if current_state == clause_depth {
+            self.bag_set_include_bit(clause, local_literal, true)?;
+        }
+        Ok(())
+    }
+
+    /// Decrements one automaton state (floor at 1), clearing the
+    /// include-mask bit on an include→exclude boundary crossing.
+    fn bag_decrement_automaton(
+        &mut self,
+        clause: usize,
+        local_literal: usize,
+    ) -> Result<(), GranmoModelError> {
+        let clause_depth = self.bag_depth_for_clause(clause);
+        let boundary_plus_one = clause_depth
+            .checked_add(1)
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+        let state_index = self.bag_state_index(clause, local_literal)?;
+        let current_state = *self
+            .bag_ta_states
+            .get(state_index)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+
+        if current_state <= 1 {
+            return Ok(()); // floor; no change
+        }
+
+        let updated_state = current_state
+            .checked_sub(1)
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+        *self
+            .bag_ta_states
+            .get_mut(state_index)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)? = updated_state;
+
+        // Crossing include→exclude: the OLD state was exactly N+1.
+        if current_state == boundary_plus_one {
+            self.bag_set_include_bit(clause, local_literal, false)?;
+        }
+        Ok(())
+    }
+
+    // --- Feedback (Phase-1 FLAT semantics; no window sampling) --------------------
+
+    /// Type Ia: clause fired and should have. For every literal: true
+    /// literals reinforce at the reinforce coin, false literals decay at
+    /// the forget coin. A shingle's presence makes its positive literal
+    /// true and its negated twin false, and vice versa. Cost O(2M).
+    fn bag_apply_type_ia_feedback(
+        &mut self,
+        clause: usize,
+        presence_bits: &[u64],
+        rng: &mut FastRng,
+    ) -> Result<(), GranmoModelError> {
+        let reinforce_coin = self.bag_reinforce_threshold_for_clause(clause);
+        let forget_coin = self.bag_forget_threshold_for_clause(clause);
+        let feature_count = self.bag_feature_count();
+        for rank in 0..feature_count {
+            let shingle_present = Self::bag_presence_bit(presence_bits, rank)?;
+            // Negated twin at M + rank (M <= 65000: sum safe in usize).
+            let positive_local = rank;
+            let negated_local = feature_count + rank;
+
+            if shingle_present {
+                // Positive literal TRUE, negated literal FALSE.
+                if rng.coin(reinforce_coin) {
+                    self.bag_increment_automaton(clause, positive_local)?;
+                }
+                if rng.coin(forget_coin) {
+                    self.bag_decrement_automaton(clause, negated_local)?;
+                }
+            } else {
+                // Positive literal FALSE, negated literal TRUE.
+                if rng.coin(forget_coin) {
+                    self.bag_decrement_automaton(clause, positive_local)?;
+                }
+                if rng.coin(reinforce_coin) {
+                    self.bag_increment_automaton(clause, negated_local)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Type Ib: clause should have fired but did not — input-independent
+    /// uniform decay with P ≈ 1/s over ALL literals (identical semantics to
+    /// the conv engine's Type Ib; §3 established fact 3).
+    fn bag_apply_type_ib_feedback(
+        &mut self,
+        clause: usize,
+        rng: &mut FastRng,
+    ) -> Result<(), GranmoModelError> {
+        let forget_coin = self.bag_forget_threshold_for_clause(clause);
+        for local_literal in 0..self.bag_literals_per_clause() {
+            if rng.coin(forget_coin) {
+                self.bag_decrement_automaton(clause, local_literal)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Type II: clause fired but should not have — deterministically
+    /// increment every FALSE literal toward inclusion, so the clause
+    /// acquires a blocking literal. False literals: the positive literal
+    /// of every ABSENT shingle, and the negated literal of every PRESENT
+    /// shingle. No randomness in Type II (same as the conv engine).
+    fn bag_apply_type_ii_feedback(
+        &mut self,
+        clause: usize,
+        presence_bits: &[u64],
+    ) -> Result<(), GranmoModelError> {
+        let feature_count = self.bag_feature_count();
+        for rank in 0..feature_count {
+            let shingle_present = Self::bag_presence_bit(presence_bits, rank)?;
+            if shingle_present {
+                // Negated literal (M + rank) is false here.
+                self.bag_increment_automaton(clause, feature_count + rank)?;
+            } else {
+                // Positive literal (rank) is false here.
+                self.bag_increment_automaton(clause, rank)?;
+            }
+        }
+        Ok(())
+    }
+
+    // --- Training -------------------------------------------------------------------
+
+    /// One stochastic training update for one document, flat semantics.
+    ///
+    /// Features are extracted ONCE (locked decision). Pass 1 (immutable)
+    /// evaluates every clause and accumulates the vote BEFORE any state
+    /// mutation — the same pre-update-attribution discipline as the conv
+    /// engine. The (T∓V)/2T gate comes from the SHARED
+    /// `resolve_feedback_gates` helper (Section 5C), so both engines train
+    /// with byte-identical gate mechanics. The per-step allocations
+    /// (presence bitset, fired-flag Vec) are documented harness-tier heap
+    /// use, mirroring the conv engine's documented scratch Vec.
+    pub fn bag_train_step(
+        &mut self,
+        document: &[u8],
+        label_is_positive: bool,
+        rng: &mut FastRng,
+    ) -> Result<(), GranmoModelError> {
+        let presence_bits = self.bag_document_presence_bits(document)?;
+
+        // Pass 1 (immutable): fired flags + vote sum.
+        let mut fired_flags: Vec<bool> = Vec::with_capacity(self.bag_clause_total);
+        let mut vote: i32 = 0;
+        for clause in 0..self.bag_clause_total {
+            let fired = self.bag_clause_fires(clause, &presence_bits)?;
+            if fired {
+                vote = if clause % 2 == 0 {
+                    vote.checked_add(1)
+                } else {
+                    vote.checked_sub(1)
+                }
+                .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+            }
+            fired_flags.push(fired);
+        }
+
+        // Integer feedback gates (shared helper, Section 5C).
+        let gates = resolve_feedback_gates(vote, self.bag_vote_target)?;
+
+        // Pass 2 (mutable): per-clause gated feedback, flat semantics —
+        // no window sampling exists for a bag.
+        for clause in 0..self.bag_clause_total {
+            let fired = *fired_flags
+                .get(clause)
+                .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+            let positive_polarity = clause % 2 == 0;
+
+            // Which feedback family, and which gate, this clause receives.
+            let (gate, receives_type_i) = if label_is_positive {
+                (gates.gate_when_target, positive_polarity)
+            } else {
+                (gates.gate_when_other, !positive_polarity)
+            };
+
+            let draw = rng.gen_index(gates.two_t)? as i32;
+            if draw >= gate {
+                continue; // gated out this step
+            }
+
+            if receives_type_i {
+                if fired {
+                    self.bag_apply_type_ia_feedback(clause, &presence_bits, rng)?;
+                } else {
+                    self.bag_apply_type_ib_feedback(clause, rng)?;
+                }
+            } else if fired {
+                self.bag_apply_type_ii_feedback(clause, &presence_bits)?;
+            }
+        }
+        Ok(())
+    }
+
+    // --- Invariant validation ----------------------------------------------------
+
+    /// Re-derives BOTH include masks for every clause from raw automaton
+    /// states and compares against the stored masks; checks every state
+    /// lies in its clause's legal band [1, 2N] (depth read through
+    /// `bag_depth_for_clause` — the M-Hetero seam, matching the conv
+    /// engine's per-clause validation structure); checks storage geometry;
+    /// and structurally revalidates the vocabulary. Call after any future
+    /// artifact load (kind 3, Drop 2.2c) and after training in tests.
+    pub fn bag_validate_internal_consistency(&self) -> Result<(), GranmoModelError> {
+        // Vocabulary structural validity first (value-integrity rule).
+        self.bag_vocabulary.vocab_validity_recheck()?;
+
+        // Storage-geometry gates.
+        let feature_count = self.bag_feature_count();
+        let expected_state_total = self
+            .bag_clause_total
+            .checked_mul(self.bag_literals_per_clause())
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+        if self.bag_ta_states.len() != expected_state_total {
+            return Err(GranmoModelError::BbgEngineIndexOutOfRange);
+        }
+        let expected_mask_total = self
+            .bag_clause_total
+            .checked_mul(self.bag_mask_words_per_clause())
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+        if self.bag_positive_include_masks.len() != expected_mask_total
+            || self.bag_negated_include_masks.len() != expected_mask_total
+        {
+            return Err(GranmoModelError::BbgEngineIndexOutOfRange);
+        }
+
+        for clause in 0..self.bag_clause_total {
+            let clause_depth = self.bag_depth_for_clause(clause);
+            let band_ceiling = clause_depth
+                .checked_mul(2)
+                .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+
+            // Recompute both masks from raw states, checking the band
+            // for every automaton along the way.
+            let words = self.bag_mask_words_per_clause();
+            let mut recomputed_positive = vec![0u64; words];
+            let mut recomputed_negated = vec![0u64; words];
+            for rank in 0..feature_count {
+                let positive_state = *self
+                    .bag_ta_states
+                    .get(self.bag_state_index(clause, rank)?)
+                    .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+                let negated_state = *self
+                    .bag_ta_states
+                    .get(self.bag_state_index(clause, feature_count + rank)?)
+                    .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+
+                if positive_state < 1
+                    || positive_state > band_ceiling
+                    || negated_state < 1
+                    || negated_state > band_ceiling
+                {
+                    return Err(GranmoModelError::BbgStateValueOutOfRange);
+                }
+                if positive_state > clause_depth {
+                    let word = recomputed_positive
+                        .get_mut(rank >> 6)
+                        .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+                    *word |= 1u64 << (rank & 63);
+                }
+                if negated_state > clause_depth {
+                    let word = recomputed_negated
+                        .get_mut(rank >> 6)
+                        .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+                    *word |= 1u64 << (rank & 63);
+                }
+            }
+
+            // Compare against the stored (incrementally maintained) masks.
+            let (range_start, range_end) = self.bag_mask_word_range(clause)?;
+            let stored_positive = self
+                .bag_positive_include_masks
+                .get(range_start..range_end)
+                .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+            let stored_negated = self
+                .bag_negated_include_masks
+                .get(range_start..range_end)
+                .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+            if stored_positive != recomputed_positive.as_slice()
+                || stored_negated != recomputed_negated.as_slice()
+            {
+                return Err(GranmoModelError::BbgIncludeMaskInconsistent);
+            }
+        }
+        Ok(())
+    }
+
+    /// Test-only helper: forces a literal fully into the include region via
+    /// the mask-maintaining transition path, so tests can hand-construct
+    /// exact clauses without breaking the mask invariants. Terminates when
+    /// the state stops changing (saturated at 2N). Mirrors the conv
+    /// engine's `test_force_include`, with a unique name per project rule.
+    #[cfg(test)]
+    fn bag_test_force_include(&mut self, clause: usize, local_literal: usize) {
+        loop {
+            let state_index = self.bag_state_index(clause, local_literal).unwrap();
+            let before = self.bag_ta_states[state_index];
+            self.bag_increment_automaton(clause, local_literal).unwrap();
+            let after = self.bag_ta_states[state_index];
+            if after == before {
+                break;
+            }
+        }
     }
 }
 
@@ -4316,7 +5904,7 @@ mod tests {
             VoteThreshold::new(15).unwrap(),
         )
         .unwrap();
-        lut.validity_recheck().unwrap();
+        lut.lut_validity_recheck().unwrap();
 
         let p_neg = lut.probability_u16(-10).unwrap();
         let p_zero = lut.probability_u16(0).unwrap();
@@ -4411,7 +5999,7 @@ mod tests {
     /// — behavioral bit-equivalence, not approximate agreement.
     #[test]
     fn artifact_round_trip_preserves_behavior_exactly() {
-        let mut engine = make_engine(5, 1, 16, false);
+        let mut conv_engine = make_engine(5, 1, 16, false);
         let mut rng = FastRng::seed(11);
         let training_docs: [(&[u8], bool); 4] = [
             (b"very good movie", true),
@@ -4421,13 +6009,13 @@ mod tests {
         ];
         for _ in 0..50 {
             for (doc, label) in training_docs {
-                engine.train_step(doc, label, &mut rng).unwrap();
+                conv_engine.train_step(doc, label, &mut rng).unwrap();
             }
         }
 
         let artifact = ModelArtifact {
             preprocess_profile: PreprocessProfile::preset_p2(),
-            engine,
+            engine: ClassifierEngine::ByteConv(conv_engine),
         };
         let path = temp_artifact_path("granmo_roundtrip_test.gmb");
         artifact.save_to_file(&path).unwrap();
@@ -4458,12 +6046,13 @@ mod tests {
 
     /// Corruption detection: flipping ONE payload byte must fail the
     /// checksum gate — the artifact never reaches the parser.
+    /// (Kind-1 v2 layout keeps the state payload starting at offset 32,
+    /// so byte 40 remains inside the states for this engine size.)
     #[test]
     fn artifact_detects_single_byte_corruption() {
-        let engine = make_engine(2, 1, 4, false);
         let artifact = ModelArtifact {
             preprocess_profile: PreprocessProfile::preset_raw(),
-            engine,
+            engine: ClassifierEngine::ByteConv(make_engine(2, 1, 4, false)),
         };
         let path = temp_artifact_path("granmo_corruption_test.gmb");
         artifact.save_to_file(&path).unwrap();
@@ -4584,8 +6173,11 @@ mod tests {
         ];
         let config = HarnessRunConfig {
             profile: PreprocessProfile::preset_p0(),
+            engine_selection: EngineSelection::ByteConv,
             patch_size: 5,
             stride: 1,
+            bag_ngram_len: 5,
+            bag_vocab_size: 4000,
             n_clauses: 32,
             vote_threshold: 15,
             states_per_action: 100,
@@ -4597,7 +6189,9 @@ mod tests {
         };
         let (engine, report) = run_single_experiment(&documents, &documents, &config).unwrap();
         engine.validate_internal_consistency().unwrap();
+        assert_eq!(report.engine_name_reported, "byte-conv");
         assert_eq!(report.test_count, 8);
+        assert_eq!(report.clause_fire_counts.len(), 32);
         assert!(
             report.accuracy_at_zero >= 0.875,
             "accuracy {} below tolerance",
@@ -4856,7 +6450,7 @@ mod tests {
         assert_eq!(vocab.ngram_at_rank(0).unwrap(), b"ab");
         assert_eq!(vocab.ngram_at_rank(1).unwrap(), b"ba");
         assert_eq!(vocab.ngram_at_rank(2).unwrap(), b"aa");
-        vocab.validity_recheck().unwrap();
+        vocab.vocab_validity_recheck().unwrap();
     }
 
     #[test]
@@ -4936,5 +6530,513 @@ mod tests {
         assert!(VocabSize::new(1).is_err());
         assert!(VocabSize::new(65001).is_err());
         assert_eq!(VocabSize::new(4000).unwrap().get().unwrap(), 4000);
+    }
+
+    /// Hand-computed feedback gates, including both clamp directions.
+    /// These values define the (T∓V)/2T rule in integer form for BOTH
+    /// engines; ByteBagTM (Drop 2.2b) trains through this same helper.
+    #[test]
+    fn feedback_gates_match_hand_computation_including_clamp() {
+        // T = 15, V = 5: target gate = 10, other gate = 20, draw range 30.
+        let gates = resolve_feedback_gates(5, 15).unwrap();
+        assert_eq!(gates.gate_when_target, 10);
+        assert_eq!(gates.gate_when_other, 20);
+        assert_eq!(gates.two_t, 30);
+
+        // V far beyond +T clamps to +T: the label-consistent side is
+        // saturated (gate 0 — no further pushing), the correcting side
+        // gets maximal pressure (gate 2T).
+        let gates = resolve_feedback_gates(100, 15).unwrap();
+        assert_eq!(gates.gate_when_target, 0);
+        assert_eq!(gates.gate_when_other, 30);
+
+        // Symmetric clamp on the negative side.
+        let gates = resolve_feedback_gates(-100, 15).unwrap();
+        assert_eq!(gates.gate_when_target, 30);
+        assert_eq!(gates.gate_when_other, 0);
+    }
+
+    /// v2 prelude gates: wrong version and unknown kind must be rejected by
+    /// their specific codes, with valid checksum framing so ONLY the gate
+    /// under test trips.
+    #[test]
+    fn artifact_rejects_unsupported_version_and_kind() {
+        // Version gate.
+        let version_path = temp_artifact_path("granmo_bad_version.gmb");
+        let mut body = Vec::new();
+        body.extend_from_slice(&ARTIFACT_MAGIC);
+        body.extend_from_slice(&99u16.to_le_bytes());
+        body.extend_from_slice(&[0u8; 4]); // kind/reserved/profile filler
+        let mut framed = body.clone();
+        framed.extend_from_slice(&fnv1a_64(&body).to_le_bytes());
+        std::fs::write(&version_path, &framed).unwrap();
+        assert_eq!(
+            ModelArtifact::load_from_file(&version_path).err(),
+            Some(GranmoModelError::ArtVersionUnsupported)
+        );
+
+        // Kind gate.
+        let kind_path = temp_artifact_path("granmo_bad_kind.gmb");
+        let mut body = Vec::new();
+        body.extend_from_slice(&ARTIFACT_MAGIC);
+        body.extend_from_slice(&ARTIFACT_FORMAT_VERSION.to_le_bytes());
+        body.push(200u8); // no such kind
+        body.push(0u8); // reserved
+        body.extend_from_slice(&0u16.to_le_bytes()); // profile bits: raw
+        let mut framed = body.clone();
+        framed.extend_from_slice(&fnv1a_64(&body).to_le_bytes());
+        std::fs::write(&kind_path, &framed).unwrap();
+        assert_eq!(
+            ModelArtifact::load_from_file(&kind_path).err(),
+            Some(GranmoModelError::ArtKindUnsupported)
+        );
+    }
+
+    /// Enum dispatch identity: the variant reports the right name and
+    /// artifact kind, and delegates to the wrapped engine.
+    #[test]
+    fn classifier_engine_dispatch_identity() {
+        let wrapped = ClassifierEngine::ByteConv(make_engine(5, 2, 8, false));
+        assert_eq!(wrapped.engine_name(), "byte-conv");
+        assert_eq!(
+            wrapped.artifact_kind(),
+            ARTIFACT_KIND_BYTECONV_FULL_TRAINING
+        );
+        assert_eq!(wrapped.clause_count(), 8);
+        // Fresh model: all clauses fire, balanced polarity => V = 0.
+        assert_eq!(wrapped.vote_sum(b"any text").unwrap(), 0);
+        wrapped.validate_internal_consistency().unwrap();
+    }
+
+    // --- ByteBagTM engine (Drop 2.2b) ---
+
+    /// Builds a ByteBagTM over a vocabulary constructed from `corpus`.
+    /// Fixed harness defaults (T=15, N=100, s=3.0, scan cap 256) mirror
+    /// `make_engine` on the conv side; unique name per project rule.
+    fn make_bag_engine(
+        ngram_len_value: u8,
+        vocab_cap: u16,
+        corpus: &[&[u8]],
+        clause_count_value: u16,
+    ) -> ByteBagTM {
+        let built_vocabulary = ByteBagVocabulary::build_from_documents(
+            NgramLength::new(ngram_len_value).unwrap(),
+            VocabSize::new(vocab_cap).unwrap(),
+            corpus,
+        )
+        .unwrap();
+        ByteBagTM::new_with_vocabulary(
+            built_vocabulary,
+            ClauseCount::new(clause_count_value).unwrap(),
+            VoteThreshold::new(15).unwrap(),
+            StatesPerAction::new(100).unwrap(),
+            SpecificityThresholds::from_specificity(3.0).unwrap(),
+            MaxScanBytes::new(256).unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn bag_fresh_engine_fires_everywhere_and_votes_zero() {
+        // Fresh clauses include no literals => all-zero masks => vacuous
+        // conjunction fires on everything; balanced polarity => V = 0.
+        // Mirrors the conv engine's fresh invariant exactly.
+        let bag_engine = make_bag_engine(2, 100, &[b"ababab", b"aa"], 8);
+        assert_eq!(bag_engine.bag_vote_sum(b"anything at all").unwrap(), 0);
+        assert!(!bag_engine.bag_predict(b"anything at all", 0).unwrap());
+        bag_engine.bag_validate_internal_consistency().unwrap();
+        let fired_words = bag_engine.bag_fired_clause_bits(b"x").unwrap();
+        assert_eq!(fired_words, vec![0b1111_1111u64]);
+    }
+
+    #[test]
+    fn bag_positive_literal_fires_regardless_of_byte_order() {
+        // THE engine-level scientific contrast with the conv engine's
+        // order-sensitivity test (`positive_include_restricts_slot...`,
+        // where "zab" fires and "zba" does not). A bag clause requiring
+        // shingle "ab" fires on BOTH "abab" and "baba" — position and
+        // order are invisible to it — and the full fired bitsets of the
+        // two documents are identical.
+        // Vocabulary from ["abab", "ba"]: counts ab:2, ba:2; tie breaks
+        // bytes-ascending => "ab" = rank 0, "ba" = rank 1 (pinned below).
+        let mut bag_engine = make_bag_engine(2, 100, &[b"abab", b"ba"], 2);
+        assert_eq!(bag_engine.bag_vocabulary_ref().vocabulary_len(), 2);
+        assert_eq!(
+            bag_engine.bag_vocabulary_ref().ngram_at_rank(0).unwrap(),
+            b"ab"
+        );
+
+        // Clause 0: require shingle "ab" present (positive literal rank 0).
+        bag_engine.bag_test_force_include(0, 0);
+        bag_engine.bag_validate_internal_consistency().unwrap();
+
+        let fired_forward = bag_engine.bag_fired_clause_bits(b"abab").unwrap();
+        let fired_reversed = bag_engine.bag_fired_clause_bits(b"baba").unwrap();
+        assert_eq!(fired_forward[0] & 0b1, 1, "clause 0 must fire on abab");
+        assert_eq!(fired_forward, fired_reversed, "bag must be order-blind");
+
+        // "bb" contains no vocabulary shingle => required "ab" absent =>
+        // clause 0 must NOT fire.
+        let fired_miss = bag_engine.bag_fired_clause_bits(b"bb").unwrap();
+        assert_eq!(fired_miss[0] & 0b1, 0);
+    }
+
+    #[test]
+    fn bag_negated_literal_blocks_on_presence() {
+        // Clause 0: forbid shingle "ba" (negated literal = local index
+        // feature_count + rank = 2 + 1 = 3). Fires only when "ba" absent.
+        let mut bag_engine = make_bag_engine(2, 100, &[b"abab", b"ba"], 2);
+        assert_eq!(bag_engine.bag_vocabulary_ref().vocabulary_len(), 2);
+        assert_eq!(
+            bag_engine.bag_vocabulary_ref().ngram_at_rank(1).unwrap(),
+            b"ba"
+        );
+
+        bag_engine.bag_test_force_include(0, 2 + 1);
+        bag_engine.bag_validate_internal_consistency().unwrap();
+
+        // "ab": only shingle "ab" => "ba" absent => fires.
+        let fired_clean = bag_engine.bag_fired_clause_bits(b"ab").unwrap();
+        assert_eq!(fired_clean[0] & 0b1, 1);
+        // "aba": shingles "ab" and "ba" => forbidden "ba" present => blocked.
+        let fired_blocked = bag_engine.bag_fired_clause_bits(b"aba").unwrap();
+        assert_eq!(fired_blocked[0] & 0b1, 0);
+    }
+
+    #[test]
+    fn bag_short_document_uses_padded_shingle() {
+        // n=3, corpus ["hi"] => single vocabulary shingle ['h','i',0x00]
+        // (PAD rule §10.4). A clause requiring it fires on the short doc
+        // "hi" and not on a long doc with no vocabulary shingles.
+        let mut bag_engine = make_bag_engine(3, 10, &[b"hi"], 2);
+        assert_eq!(bag_engine.bag_vocabulary_ref().vocabulary_len(), 1);
+        bag_engine.bag_test_force_include(0, 0);
+        bag_engine.bag_validate_internal_consistency().unwrap();
+
+        let fired_short = bag_engine.bag_fired_clause_bits(b"hi").unwrap();
+        assert_eq!(fired_short[0] & 0b1, 1);
+        let fired_long = bag_engine.bag_fired_clause_bits(b"hello").unwrap();
+        assert_eq!(fired_long[0] & 0b1, 0);
+    }
+
+    #[test]
+    fn bag_invariants_survive_stochastic_training() {
+        let corpus: &[&[u8]] = &[b"abcdefg", b"gfedcba", b"hi", b"aaaaaaaa"];
+        let mut bag_engine = make_bag_engine(2, 100, corpus, 16);
+        let mut rng = FastRng::seed(7);
+        let training_docs: [(&[u8], bool); 5] = [
+            (b"abcdefg", true),
+            (b"gfedcba", false),
+            (b"hi", true), // short doc: padded-shingle path
+            (b"", false),  // empty doc: all-PAD shingle must train cleanly
+            (b"aaaaaaaa", true),
+        ];
+        for _ in 0..50 {
+            for (doc, label) in training_docs {
+                bag_engine.bag_train_step(doc, label, &mut rng).unwrap();
+            }
+        }
+        bag_engine.bag_validate_internal_consistency().unwrap();
+    }
+
+    #[test]
+    fn bag_learns_negation_micro_corpus() {
+        // The SAME negation micro-corpus as the conv engine's learning
+        // test. Recorded prediction (Session 2 §3, locked): the bag SHOULD
+        // pass — "not g" and "very " are themselves distinguishing
+        // shingles. The suites where the bag is predicted to LOSE are the
+        // positional/word-boundary minimal pairs (robustness suites, next
+        // roadmap item) — not this corpus.
+        let positives: [&[u8]; 4] = [
+            b"very good movie",
+            b"very good story",
+            b"very good acting",
+            b"it was very good",
+        ];
+        let negatives: [&[u8]; 4] = [
+            b"not good movie",
+            b"not good story",
+            b"not good acting",
+            b"it was not good",
+        ];
+        let corpus: Vec<&[u8]> = positives.iter().chain(negatives.iter()).copied().collect();
+        let mut bag_engine = make_bag_engine(5, 200, &corpus, 32);
+        let mut rng = FastRng::seed(42);
+        for _ in 0..300 {
+            for doc in positives {
+                bag_engine.bag_train_step(doc, true, &mut rng).unwrap();
+            }
+            for doc in negatives {
+                bag_engine.bag_train_step(doc, false, &mut rng).unwrap();
+            }
+        }
+        bag_engine.bag_validate_internal_consistency().unwrap();
+
+        for doc in positives {
+            assert!(
+                bag_engine.bag_predict(doc, 0).unwrap(),
+                "positive doc misclassified: {:?}",
+                core::str::from_utf8(doc)
+            );
+        }
+        for doc in negatives {
+            assert!(
+                !bag_engine.bag_predict(doc, 0).unwrap(),
+                "negative doc misclassified: {:?}",
+                core::str::from_utf8(doc)
+            );
+        }
+    }
+    /*
+    Test-Note (bag_learns_negation_micro_corpus):
+    This is the second stochastic-outcome test in the suite (the first is
+    the conv engine's learning test). Deterministic under seed 42, but the
+    pass depends on hyperparameters I cannot execute here. If it fails on
+    your machine, report which docs misclassify and their bag_vote_sum
+    values; first knobs are epochs 300→500 and clauses 32→48 — tune against
+    observed votes, do not weaken the invariant tests.
+    */
+
+    #[test]
+    fn bag_describe_clause_decodes_forced_pattern() {
+        let mut bag_engine = make_bag_engine(2, 100, &[b"abab", b"ba"], 2);
+        assert_eq!(bag_engine.bag_vocabulary_ref().vocabulary_len(), 2);
+        bag_engine.bag_test_force_include(0, 0); // has "ab" (positive rank 0)
+        bag_engine.bag_test_force_include(0, 2 + 1); // lacks "ba" (negated rank 1)
+        let description = bag_engine.bag_describe_clause(0, 12).unwrap();
+        assert!(description.contains("has \"ab\""), "got: {description}");
+        assert!(description.contains("lacks \"ba\""), "got: {description}");
+    }
+
+    // --- ByteBag integration: enum dispatch + artifact kind 3 (Drop 2.2c-i) ---
+
+    /// Enum dispatch identity for the ByteBag variant: right name, right
+    /// artifact kind, and delegation to the `bag_`-prefixed engine surface.
+    #[test]
+    fn bag_classifier_engine_dispatch_identity() {
+        let wrapped_bag =
+            ClassifierEngine::ByteBag(make_bag_engine(2, 100, &[b"ababab", b"aa"], 8));
+        assert_eq!(wrapped_bag.engine_name(), "byte-bag");
+        assert_eq!(
+            wrapped_bag.artifact_kind(),
+            ARTIFACT_KIND_BYTEBAG_FULL_TRAINING
+        );
+        assert_eq!(wrapped_bag.clause_count(), 8);
+        // Fresh bag: all clauses fire, balanced polarity => V = 0.
+        assert_eq!(wrapped_bag.vote_sum(b"any text").unwrap(), 0);
+        wrapped_bag.validate_internal_consistency().unwrap();
+        let lut_for_bag = wrapped_bag.build_probability_lut().unwrap();
+        lut_for_bag.lut_validity_recheck().unwrap();
+    }
+
+    /// The kind-3 artifact guarantee, mirroring the kind-1 round-trip test:
+    /// vocabulary AND states persist; the loaded model passes all four load
+    /// gates and votes IDENTICALLY on every probe document.
+    #[test]
+    fn bag_artifact_round_trip_preserves_behavior_exactly() {
+        let positives: [&[u8]; 2] = [b"very good movie", b"it was very good"];
+        let negatives: [&[u8]; 2] = [b"not good movie", b"it was not good"];
+        let corpus: Vec<&[u8]> = positives.iter().chain(negatives.iter()).copied().collect();
+        let mut trained_bag = make_bag_engine(5, 200, &corpus, 16);
+        let mut rng = FastRng::seed(11);
+        for _ in 0..50 {
+            for doc in positives {
+                trained_bag.bag_train_step(doc, true, &mut rng).unwrap();
+            }
+            for doc in negatives {
+                trained_bag.bag_train_step(doc, false, &mut rng).unwrap();
+            }
+        }
+
+        let artifact = ModelArtifact {
+            preprocess_profile: PreprocessProfile::preset_p0(),
+            engine: ClassifierEngine::ByteBag(trained_bag),
+        };
+        let path = temp_artifact_path("granmo_bag_roundtrip_test.gmb");
+        artifact.save_to_file(&path).unwrap();
+        let loaded = ModelArtifact::load_from_file(&path).unwrap();
+
+        assert_eq!(loaded.engine.engine_name(), "byte-bag");
+        assert_eq!(
+            loaded.preprocess_profile.get_bits().unwrap(),
+            PreprocessProfile::preset_p0().get_bits().unwrap()
+        );
+        loaded.engine.validate_internal_consistency().unwrap();
+
+        let probe_docs: [&[u8]; 5] = [
+            b"very good movie",
+            b"not good movie",
+            b"something unrelated",
+            b"hi",
+            b"",
+        ];
+        for doc in probe_docs {
+            assert_eq!(
+                artifact.engine.vote_sum(doc).unwrap(),
+                loaded.engine.vote_sum(doc).unwrap(),
+                "bag vote divergence after round-trip on {:?}",
+                core::str::from_utf8(doc)
+            );
+        }
+    }
+
+    // --- Engine selection, leakage guard, fire-rate (Drop 2.2c-ii) ---
+
+    /// Hand-computed vote derivation from fired bits: bits 0b1011 over 4
+    /// clauses = clauses 0 (+), 1 (−), 3 (−) fired => V = 1 − 1 − 1 = −1.
+    #[test]
+    fn vote_from_fired_words_matches_hand_computation() {
+        assert_eq!(vote_from_fired_words(&[0b1011u64], 4).unwrap(), -1);
+        assert_eq!(vote_from_fired_words(&[0u64], 4).unwrap(), 0);
+        // Missing bitset word storage is an internal fault, never silence.
+        assert_eq!(
+            vote_from_fired_words(&[], 1).err(),
+            Some(GranmoModelError::CliFireRateReportInternalFault)
+        );
+    }
+
+    /// The leakage guard of record: a shingle occurring ONLY in test
+    /// documents must be absent from the ByteBag vocabulary, while a
+    /// training-split shingle is present.
+    #[test]
+    fn harness_vocabulary_built_from_training_split_only() {
+        let train_documents = vec![
+            LabeledDocument {
+                text: b"aaaaa bbbbb".to_vec(),
+                label_is_positive: true,
+            },
+            LabeledDocument {
+                text: b"ccccc ddddd".to_vec(),
+                label_is_positive: false,
+            },
+        ];
+        let test_documents = vec![LabeledDocument {
+            text: b"zzzzz aaaaa".to_vec(),
+            label_is_positive: true,
+        }];
+        let config = HarnessRunConfig {
+            profile: PreprocessProfile::preset_raw(),
+            engine_selection: EngineSelection::ByteBag,
+            patch_size: 5, // ignored by bag
+            stride: 2,     // ignored by bag
+            bag_ngram_len: 5,
+            bag_vocab_size: 100,
+            n_clauses: 4,
+            vote_threshold: 15,
+            states_per_action: 100,
+            specificity: 3.0,
+            max_scan_bytes: 256,
+            guarded_include: false, // ignored by bag
+            epochs: 1,
+            seed: 42,
+        };
+        let (trained_engine, report) =
+            run_single_experiment(&train_documents, &test_documents, &config).unwrap();
+        assert_eq!(report.engine_name_reported, "byte-bag");
+        match trained_engine {
+            ClassifierEngine::ByteBag(bag_engine) => {
+                let vocabulary_view = bag_engine.bag_vocabulary_ref();
+                assert!(vocabulary_view.lookup(b"aaaaa").unwrap().is_some());
+                assert!(vocabulary_view.lookup(b"zzzzz").unwrap().is_none());
+            }
+            ClassifierEngine::ByteConv(_) => panic!("expected the ByteBag engine"),
+        }
+    }
+
+    /// Full-pipeline micro-run for the ByteBag path through the SHARED
+    /// harness (preprocess -> vocabulary from train side -> train ->
+    /// evaluate -> sweep -> fire-rate). Plumbing verification, mirroring
+    /// `harness_end_to_end_on_negation_corpus`.
+    #[test]
+    fn harness_bag_engine_end_to_end_on_negation_corpus() {
+        let make_doc = |text: &[u8], positive: bool| LabeledDocument {
+            text: text.to_vec(),
+            label_is_positive: positive,
+        };
+        let documents = vec![
+            make_doc(b"very good movie", true),
+            make_doc(b"very good story", true),
+            make_doc(b"very good acting", true),
+            make_doc(b"it was very good", true),
+            make_doc(b"not good movie", false),
+            make_doc(b"not good story", false),
+            make_doc(b"not good acting", false),
+            make_doc(b"it was not good", false),
+        ];
+        let config = HarnessRunConfig {
+            profile: PreprocessProfile::preset_p0(),
+            engine_selection: EngineSelection::ByteBag,
+            patch_size: 5, // ignored by bag
+            stride: 1,     // ignored by bag
+            bag_ngram_len: 5,
+            bag_vocab_size: 200,
+            n_clauses: 32,
+            vote_threshold: 15,
+            states_per_action: 100,
+            specificity: 3.0,
+            max_scan_bytes: 256,
+            guarded_include: false, // ignored by bag
+            epochs: 400,
+            seed: 42,
+        };
+        let (trained_engine, report) =
+            run_single_experiment(&documents, &documents, &config).unwrap();
+        trained_engine.validate_internal_consistency().unwrap();
+        assert_eq!(report.engine_name_reported, "byte-bag");
+        assert_eq!(report.test_count, 8);
+        assert_eq!(report.clause_fire_counts.len(), 32);
+        assert!(
+            report
+                .clause_fire_counts
+                .iter()
+                .all(|&count| count as usize <= report.test_count),
+            "a fire count exceeded the test-document count"
+        );
+        assert!(
+            report.accuracy_at_zero >= 0.875,
+            "bag accuracy {} below tolerance",
+            report.accuracy_at_zero
+        );
+        assert!(
+            report.best_f1_row.f1 >= 0.85,
+            "bag best F1 {}",
+            report.best_f1_row.f1
+        );
+    }
+    /*
+    Test-Note (harness_bag_engine_end_to_end_on_negation_corpus):
+    Stochastic-outcome test, deterministic under seed 42 but hyperparameter-
+    dependent (the third such test, after the two engine learning tests).
+    If it fails on your machine, report accuracy/F1 and which docs
+    misclassify; first knobs are epochs 400→600 and clauses 32→48. Tune
+    against observed values; do not weaken invariant tests.
+    */
+
+    /// CLI: engine selection and bag flags parse; unknown engine fails fast.
+    #[test]
+    fn cli_parses_engine_and_bag_flags() {
+        let parsed = cli(&[
+            "--mode",
+            "train",
+            "--engine",
+            "byte-bag",
+            "--ngram-len",
+            "4",
+            "--vocab-size",
+            "1000",
+        ])
+        .unwrap();
+        assert_eq!(parsed.engine_selection, EngineSelection::ByteBag);
+        assert_eq!(parsed.bag_ngram_len, 4);
+        assert_eq!(parsed.bag_vocab_size, 1000);
+
+        // Default engine is byte-conv.
+        let defaulted = cli(&["--mode", "train"]).unwrap();
+        assert_eq!(defaulted.engine_selection, EngineSelection::ByteConv);
+
+        assert_eq!(
+            cli(&["--engine", "nonsense"]).err(),
+            Some(GranmoModelError::CliUnknownEngine)
+        );
     }
 }
