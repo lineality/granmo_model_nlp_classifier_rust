@@ -1914,9 +1914,13 @@ pub fn train_pipeline(
             )?;
 
             println!(
-                    "[3/3] Training WindowedTM (width {}, {:?} pooling, cap {}, {} epochs, {} classes)...",
-                    config.window_width, config.pooling, config.clause_vote_cap, config.epochs, num_classes
-                );
+                "[3/3] Training WindowedTM (width {}, {:?} pooling, cap {}, {} epochs, {} classes)...",
+                config.window_width,
+                config.pooling,
+                config.clause_vote_cap,
+                config.epochs,
+                num_classes
+            );
             for _ in 0..config.epochs {
                 for (tokens, label_id) in &samples {
                     tm.train_step(tokens, *label_id, &mut rng)?;
@@ -2097,7 +2101,7 @@ impl CliArgs {
                         other => {
                             return Err(PipelineError::CliError(format!(
                                 "--model-type must be 'flat' or 'windowed', got '{other}'"
-                            )))
+                            )));
                         }
                     };
                 }
@@ -2112,7 +2116,7 @@ impl CliArgs {
                         other => {
                             return Err(PipelineError::CliError(format!(
                                 "--pooling must be 'countfire' or 'anyfire', got '{other}'"
-                            )))
+                            )));
                         }
                     };
                 }
@@ -2488,17 +2492,19 @@ mod tests {
 
         // Same words, reversed order: must NOT fire anywhere.
         let reversed = vec![Some(2), Some(1), Some(3)];
-        assert!(tm
-            .fired_window_positions(0, 0, &reversed)
-            .unwrap()
-            .is_empty());
+        assert!(
+            tm.fired_window_positions(0, 0, &reversed)
+                .unwrap()
+                .is_empty()
+        );
 
         // Same words, non-adjacent (word 3 interposed): must NOT fire.
         let separated = vec![Some(1), Some(3), Some(2)];
-        assert!(tm
-            .fired_window_positions(0, 0, &separated)
-            .unwrap()
-            .is_empty());
+        assert!(
+            tm.fired_window_positions(0, 0, &separated)
+                .unwrap()
+                .is_empty()
+        );
 
         // Pattern at a later offset: window slides and finds it at position 1.
         let offset = vec![Some(0), Some(1), Some(2), Some(3)];
@@ -2551,10 +2557,11 @@ mod tests {
 
         // Forbidden word present at slot 0 => blocked.
         let with_forbidden = vec![Some(0)];
-        assert!(tm
-            .fired_window_positions(0, 0, &with_forbidden)
-            .unwrap()
-            .is_empty());
+        assert!(
+            tm.fired_window_positions(0, 0, &with_forbidden)
+                .unwrap()
+                .is_empty()
+        );
 
         // OOV token (None) mid-document behaves exactly like PAD.
         let with_oov = vec![None, Some(1), Some(2)];

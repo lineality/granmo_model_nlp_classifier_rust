@@ -201,18 +201,18 @@ cargo run --release -- \
 
 ---
 
-### 4. How the Internal Parameters Interlock ($T$, $s$, $N$)
+### 4. How Internal Parameters Interlock ($T$, $s$, $N$)
 
-In the Rust crate, these command-line arguments connect to mathematical hyperparameters inside the TM engine:
+Command-line arguments connect to mathematical hyperparameters inside the TM engine:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        Tsetlin Machine Tuning Formulas                  │
+│                        Tsetlin Machine Tuning Formulas                 │
 ├──────────────────────────┬─────────────────────────────────────────────┤
 │ Target Threshold (T)     │ T ≈ 0.5 × clauses  to  0.8 × clauses        │
-│                          │ For clauses = 120  ──►  T = 50..80           │
+│                          │ For clauses = 120  ──►  T = 50..80          │
 ├──────────────────────────┼─────────────────────────────────────────────┤
-│ Specificity (s)          │ Controls clause length (literal count):      │
+│ Specificity (s)          │ Controls clause length (literal count):     │
 │                          │ s = 3.0..5.0  ──► Short clauses (2-4 words) │
 │                          │ s = 6.0..10.0 ──► Long clauses (5-8 words)  │
 ├──────────────────────────┼─────────────────────────────────────────────┤
