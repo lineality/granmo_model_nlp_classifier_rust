@@ -3542,7 +3542,7 @@ pub fn load_labeled_jsonl(
     };
 
     let mut documents: Vec<LabeledDocument> = Vec::new();
-    for (line_index, line) in raw.split(|&b| b == b'\n').enumerate() {
+    for (_line_index, line) in raw.split(|&b| b == b'\n').enumerate() {
         // Explicit match rather than '?': the line NUMBER is the diagnostic
         // that makes a malformed-file report actionable, and it exists only
         // at this site. (Line numbers are positional, not PII; line CONTENT
@@ -3558,7 +3558,7 @@ pub fn load_labeled_jsonl(
                 eprintln!(
                     "DS-{}: JSONL parse error at line {}",
                     parse_error.code(),
-                    line_index.saturating_add(1)
+                    _line_index.saturating_add(1)
                 );
                 return Err(parse_error);
             }
