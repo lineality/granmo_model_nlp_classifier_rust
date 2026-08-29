@@ -1,4 +1,6 @@
-//! # Byte-Convolution Granmo Model — Phase 2 Crate
+//! # Byte Granmo Model w/ Parallal Train/Predict Threading — Phase 2 Crate
+//!
+//! Observing: https://github.com/lineality/rust_lang_rules
 //!
 //! Binary classification of short social-media text (hate/bullying
 //! detection) using byte-level Granmo Models (per Granmo 2018, the
@@ -223,6 +225,18 @@ pub enum GranmoModelError {
     /// report wiring is corrupt; one shared code for these harness-internal
     /// sites by design.
     CliFireRateReportInternalFault = 807,
+    /// The misprediction-log path, after default resolution, was not
+    /// absolute (crate-wide absolute-path policy: log locations must be
+    /// unambiguous for reproducibility). Occurs only when an operator
+    /// supplies a relative `--log-out` AND the fallback resolution against
+    /// the executable directory also fails.
+    CliLogPathNotAbsolute = 808,
+    /// Creating the misprediction-log parent directory failed (filesystem
+    /// detail dropped per no-PII policy). RETRYABLE: may be transient.
+    CliLogDirCreateFailed = 809,
+    /// Opening/appending the misprediction-log file failed (filesystem
+    /// detail dropped per no-PII policy). RETRYABLE: may be transient.
+    CliLogWriteFailed = 810,
     // --- 900–999: ByteBag baseline (`Bbg*`) — flat bag-of-byte-n-grams,
     //     the scientific control for "does convolution earn its complexity"
     //     (§8 success criteria). ---
@@ -264,6 +278,29 @@ pub enum GranmoModelError {
     /// (T <= 10000 bounds every intermediate at <= 20000); present as
     /// defence-in-depth per the checked-arithmetic rule.
     TrnGateArithmeticOverflow = 1000,
+
+    // --- 1100–1199: Parallel execution (`Par*`) — worker-count validation
+    //     and scoped-thread coordination faults. Parallelism in this crate
+    //     is PERFORMANCE-ONLY: results are byte-identical at every worker
+    //     count (per-clause derived RNG streams), so every code here is a
+    //     wiring/invariant fault, never a semantic difference. ---
+    /// `WorkerCount` outside supported bounds at construction.
+    ParWorkerCountOutOfBounds = 1100,
+    /// `WorkerCount` revalidation on `.get()` failed (corruption).
+    ParWorkerCountRecheckCorrupt = 1101,
+    /// A scoped worker thread's join returned the panic arm. Production
+    /// code never panics, so this is internal-invariant detection: the
+    /// step is reported failed and never retried (repeating an identical
+    /// call cannot help).
+    ParWorkerJoinFailed = 1102,
+    /// Parallel evaluation's ordered merge found chunk geometry
+    /// inconsistent with input lengths. Unreachable unless wiring is
+    /// corrupt; one shared code for these merge sites by design.
+    ParEvalMergeGeometryFault = 1103,
+    /// Per-clause mutable view construction produced a slice whose length
+    /// disagrees with the engine's declared geometry (states, masks, or
+    /// counts). Unreachable unless engine storage is corrupt.
+    ParClauseViewGeometryFault = 1104,
 }
 
 impl GranmoModelError {
@@ -277,10 +314,22 @@ impl GranmoModelError {
     /// cannot help).
     pub fn is_retryable(&self) -> bool {
         match self {
-            Self::ArtFileWriteFailed | Self::ArtFileReadFailed | Self::DsFileReadFailed => true,
+            // True Arm
+            Self::ArtFileWriteFailed
+            | Self::ArtFileReadFailed
+            | Self::DsFileReadFailed
+            | Self::CliLogDirCreateFailed
+            | Self::CliLogWriteFailed => true,
 
+            // False Arm
             Self::PpProfileReservedBitsSet
+            | Self::CliLogPathNotAbsolute
             | Self::PpProfileRecheckCorrupt
+            | Self::ParWorkerCountOutOfBounds
+            | Self::ParWorkerCountRecheckCorrupt
+            | Self::ParWorkerJoinFailed
+            | Self::ParEvalMergeGeometryFault
+            | Self::ParClauseViewGeometryFault
             | Self::RngGenIndexEmptyRange
             | Self::CfgPatchSizeOutOfBounds
             | Self::CfgPatchSizeRecheckCorrupt
@@ -435,6 +484,59 @@ impl FastRng {
         let idx = ((u128::from(draw) * (len as u128)) >> 64) as usize;
         Ok(idx)
     }
+}
+
+// ---------------------------------------------------------------------------
+// Per-clause derived RNG streams (locked decision, Drop 3.x)
+// ---------------------------------------------------------------------------
+//
+// CONTRACT OF RECORD. Training randomness is indexed by WHAT IT IS FOR —
+// the triple (training step, clause, purpose) — not by WHEN IT IS DRAWN.
+// The master `FastRng` still drives per-epoch order shuffling and draws
+// exactly ONE `next_u64()` per training step to produce that step's seed;
+// each clause then runs its own `FastRng` seeded from that step seed.
+//
+// Consequences (all deliberate):
+// - A run is reproducible from (dataset, split seed, run config, epochs)
+//   and NOTHING else — not the worker count, not the thread schedule, not
+//   the machine's core count.
+// - `--workers 1` and `--workers 32` produce byte-identical artifacts, so
+//   the single-threaded path is a valid oracle for the parallel path.
+// - This REPLACES the pre-parallel contract (one stream consumed in clause
+//   order). Trajectories from before this change are not reproducible by
+//   this build; artifacts are regenerable experiment outputs, so there is
+//   no migration path by design.
+//
+// The two purpose tags keep the window-scan stream and the feedback stream
+// independent, so the two training passes may use different clause→worker
+// assignments with no coupling between them.
+
+/// Purpose tag: pass-1 reservoir window sampling.
+const RNG_PURPOSE_WINDOW_SCAN: u64 = 0x5BF0_3635_1C31_9A7D;
+/// Purpose tag: pass-2 gate draw and feedback coin draws.
+const RNG_PURPOSE_CLAUSE_FEEDBACK: u64 = 0x2E1B_9C44_A70F_D318;
+
+/// Odd multiplier decorrelating adjacent clause indices before mixing.
+const CLAUSE_INDEX_SCATTER_MULTIPLIER: u64 = 0xD139_5F14_7EF7_2F19;
+
+/// Derives an independent stream seed for one (step, clause, purpose)
+/// triple using the SplitMix64 finalizer.
+///
+/// `wrapping_mul`/`wrapping_add` are the DEFINED behavior of this mixer
+/// (modular arithmetic), not unchecked arithmetic: wrapping is explicit,
+/// intentional, and cannot panic — the same posture as `fnv1a_64`.
+/// `FastRng::seed` remaps a zero result, so the xorshift absorbing state
+/// is unreachable here.
+#[inline(always)]
+fn derive_clause_stream_seed(step_seed: u64, clause_index: u64, purpose_tag: u64) -> u64 {
+    let mut mixed =
+        step_seed ^ clause_index.wrapping_mul(CLAUSE_INDEX_SCATTER_MULTIPLIER) ^ purpose_tag;
+    mixed ^= mixed >> 30;
+    mixed = mixed.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    mixed ^= mixed >> 27;
+    mixed = mixed.wrapping_mul(0x94D0_49BB_1331_11EB);
+    mixed ^= mixed >> 31;
+    mixed
 }
 
 // ===========================================================================
@@ -592,6 +694,90 @@ impl MaxScanBytes {
         }
         Ok(self.value)
     }
+}
+
+/// Worker-thread count for parallel training and evaluation.
+///
+/// PERFORMANCE-ONLY KNOB (locked decision): results are byte-identical at
+/// every value in range, because randomness is indexed by (training step,
+/// clause, purpose) rather than by consumption order — see
+/// `derive_clause_stream_seed`. `WorkerCount::new(1)` is therefore not a
+/// "strict mode"; it is the same computation on one thread, which makes
+/// the single-threaded path a valid ORACLE for the multi-threaded path.
+///
+/// Upper bound is a sanity cap, not a machine property: an absurd worker
+/// count is a typo, and oversubscription only wastes context switches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkerCount {
+    value: u16,
+}
+
+impl WorkerCount {
+    pub const MIN: u16 = 1;
+    pub const MAX: u16 = 1024;
+
+    pub fn new(value: u16) -> Result<Self, GranmoModelError> {
+        if value < Self::MIN || value > Self::MAX {
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "PAR-1100: WorkerCount {} outside {}..={}",
+                value,
+                Self::MIN,
+                Self::MAX
+            );
+            return Err(GranmoModelError::ParWorkerCountOutOfBounds);
+        }
+        Ok(Self { value })
+    }
+
+    pub fn get(&self) -> Result<u16, GranmoModelError> {
+        if self.value < Self::MIN || self.value > Self::MAX {
+            return Err(GranmoModelError::ParWorkerCountRecheckCorrupt);
+        }
+        Ok(self.value)
+    }
+
+    /// Resolves the machine's available parallelism, clamped into bounds.
+    /// Total by construction (a failed query falls back to 1), so it
+    /// returns `Self` rather than `Result` — same posture as the
+    /// `PreprocessProfile::preset_*` constructors.
+    pub fn resolve_automatic() -> Self {
+        let detected = std::thread::available_parallelism()
+            .map(|count| count.get())
+            .unwrap_or(1);
+        let clamped = detected.clamp(usize::from(Self::MIN), usize::from(Self::MAX));
+        Self {
+            value: clamped as u16,
+        }
+    }
+}
+
+/// Effective worker count for a fork-join over `work_item_total` items:
+/// never more workers than items, never fewer than one. Splitting the
+/// clause bank into empty ranges would spawn threads that do nothing.
+fn resolve_effective_worker_count(
+    requested_workers: WorkerCount,
+    work_item_total: usize,
+) -> Result<usize, GranmoModelError> {
+    let requested = usize::from(requested_workers.get()?);
+    Ok(requested.min(work_item_total.max(1)).max(1))
+}
+
+/// Items per worker chunk, rounded up so `chunks_mut(chunk_size)` yields
+/// at most `worker_total` chunks covering every item exactly once.
+fn resolve_work_chunk_size(
+    work_item_total: usize,
+    worker_total: usize,
+) -> Result<usize, GranmoModelError> {
+    if worker_total == 0 {
+        return Err(GranmoModelError::ParClauseViewGeometryFault);
+    }
+    work_item_total
+        .checked_add(worker_total)
+        .and_then(|sum| sum.checked_sub(1))
+        .map(|sum| sum / worker_total)
+        .map(|size| size.max(1))
+        .ok_or(GranmoModelError::ParClauseViewGeometryFault)
 }
 
 /// Convolution window width K in bytes. Bounds: 2..=16 (K=1 degenerates to a
@@ -1086,6 +1272,41 @@ const BYTE_ALPHABET_SIZE: usize = 256;
 /// Words in one allowed-bytes bitmask: 256 bits = 4 × u64.
 const MASK_WORDS: usize = 4;
 
+/// Derives one slot's allowed-bytes mask from that slot's raw automaton
+/// states. THE single source of truth for mask semantics (§4 of the
+/// specification of record): the validator, the artifact-load rebuild, and
+/// the live training path all call this one function, so they cannot drift.
+///
+/// Semantics:
+/// - 0 positive includes: byte b allowed iff negated(b) not included;
+/// - 1 positive include b*: only b* allowed, and only if negated(b*) is
+///   not also included;
+/// - >=2 positive includes: nothing allowed (structurally dead slot).
+///
+/// Slice indexing below is safe by construction: both inputs are length-
+/// checked to exactly `BYTE_ALPHABET_SIZE` before any index is taken.
+fn derive_allowed_mask_from_states(
+    positive_states: &[i16],
+    negated_states: &[i16],
+    depth_n: i16,
+) -> Result<[u64; MASK_WORDS], GranmoModelError> {
+    if positive_states.len() != BYTE_ALPHABET_SIZE || negated_states.len() != BYTE_ALPHABET_SIZE {
+        return Err(GranmoModelError::BctIndexOutOfRange);
+    }
+    let included_positive_total = positive_states.iter().filter(|&&s| s > depth_n).count();
+    let mut mask = [0u64; MASK_WORDS];
+    if included_positive_total <= 1 {
+        for byte_value in 0..BYTE_ALPHABET_SIZE {
+            let negated_included = negated_states[byte_value] > depth_n;
+            let positive_ok = included_positive_total == 0 || positive_states[byte_value] > depth_n;
+            if positive_ok && !negated_included {
+                mask[byte_value >> 6] |= 1u64 << (byte_value & 63);
+            }
+        }
+    }
+    Ok(mask)
+}
+
 /// The byte-level convolutional Granmo Model of record (§4 of the hand-off).
 ///
 /// ## Structure
@@ -1152,12 +1373,384 @@ pub struct ByteConvTM {
     positive_include_counts: Vec<u16>,
 }
 
+/// One clause's P4-tier properties, snapshotted through the per-clause
+/// accessors BEFORE mutable borrows are taken (the accessors need `&self`).
+/// This snapshot is precisely where a future TeamCompositionPalette enters
+/// the parallel path — the M-Hetero seam survives parallelization intact.
+#[derive(Debug, Clone, Copy)]
+struct ConvClauseProperties {
+    depth_n: i16,
+    forget_threshold: u16,
+    reinforce_threshold: u16,
+    guarded_include: bool,
+}
+
+/// Exclusive mutable access to ONE clause's automaton states, allowed-bytes
+/// masks, and positive-include counts.
+///
+/// ## Why this type exists
+/// Clause state in `ByteConvTM` is disjoint and contiguous: clause c owns
+/// `ta_states[c*L..(c+1)*L]`, `allowed_masks[c*K..(c+1)*K]`, and
+/// `positive_include_counts[c*K..(c+1)*K]`, and NO transition or feedback
+/// operation ever touches another clause. Producing these views by zipping
+/// `chunks_mut` over the three storage vectors makes the borrow checker
+/// itself prove the ranges are disjoint — so clause ranges can be handed
+/// to different threads with no `unsafe`, no locks, and no atomics.
+///
+/// ## Single source of truth
+/// ALL state mutation lives here (not on the engine), so the mask/count
+/// caches cannot drift: the sequential path and the parallel path execute
+/// byte-identical code, differing only in how many views one thread holds.
+/// Indices are LOCAL to the clause (`0..2*K*256`).
+pub struct ConvClauseWorkView<'engine> {
+    clause_index: usize,
+    patch_size: usize,
+    depth_n: i16,
+    forget_threshold: u16,
+    reinforce_threshold: u16,
+    guarded_include: bool,
+    states: &'engine mut [i16],
+    masks: &'engine mut [[u64; MASK_WORDS]],
+    positive_counts: &'engine mut [u16],
+}
+
+impl<'engine> ConvClauseWorkView<'engine> {
+    /// This clause's index in the bank (polarity = index parity).
+    #[inline(always)]
+    fn view_clause_index(&self) -> usize {
+        self.clause_index
+    }
+
+    #[inline(always)]
+    fn view_positive_local_index(&self, slot: usize, byte_value: usize) -> usize {
+        slot * BYTE_ALPHABET_SIZE + byte_value
+    }
+
+    #[inline(always)]
+    fn view_negated_local_index(&self, slot: usize, byte_value: usize) -> usize {
+        self.patch_size * BYTE_ALPHABET_SIZE + slot * BYTE_ALPHABET_SIZE + byte_value
+    }
+
+    /// Recomputes and stores one slot's mask from this clause's raw states.
+    /// Called ONLY from the two transition methods on boundary crossings —
+    /// the invariant that keeps evaluation O(K) bit-tests.
+    fn view_recompute_mask(&mut self, slot: usize) -> Result<(), GranmoModelError> {
+        let positive_start = self.view_positive_local_index(slot, 0);
+        let negated_start = self.view_negated_local_index(slot, 0);
+        let positive_end = positive_start
+            .checked_add(BYTE_ALPHABET_SIZE)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+        let negated_end = negated_start
+            .checked_add(BYTE_ALPHABET_SIZE)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+        let fresh_mask = {
+            let positive_states = self
+                .states
+                .get(positive_start..positive_end)
+                .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+            let negated_states = self
+                .states
+                .get(negated_start..negated_end)
+                .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+            derive_allowed_mask_from_states(positive_states, negated_states, self.depth_n)?
+        };
+        let stored = self
+            .masks
+            .get_mut(slot)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+        *stored = fresh_mask;
+        Ok(())
+    }
+
+    /// Increments one automaton state (saturating at 2N), maintaining the
+    /// positive-include count cache and recomputing the affected slot mask
+    /// on an exclude→include crossing. GuardedInclude semantics unchanged:
+    /// a positive literal is refused the crossing while another positive
+    /// literal at the same slot is already included.
+    fn view_increment_state(&mut self, local_literal: usize) -> Result<(), GranmoModelError> {
+        let twice_n = self
+            .depth_n
+            .checked_mul(2)
+            .ok_or(GranmoModelError::BctArithmeticOverflow)?;
+        let state = *self
+            .states
+            .get(local_literal)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+        if state >= twice_n {
+            return Ok(()); // saturated deep-include; no change
+        }
+
+        let positive_region_len = self.patch_size * BYTE_ALPHABET_SIZE;
+        let is_positive_literal = local_literal < positive_region_len;
+        let crossing = state == self.depth_n;
+        let slot = if is_positive_literal {
+            local_literal / BYTE_ALPHABET_SIZE
+        } else {
+            (local_literal - positive_region_len) / BYTE_ALPHABET_SIZE
+        };
+
+        if crossing && is_positive_literal && self.guarded_include {
+            let current_count = *self
+                .positive_counts
+                .get(slot)
+                .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+            if current_count > 0 {
+                return Ok(()); // guard refuses the crossing; clamp at boundary
+            }
+        }
+
+        let new_state = state
+            .checked_add(1)
+            .ok_or(GranmoModelError::BctArithmeticOverflow)?;
+        *self
+            .states
+            .get_mut(local_literal)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)? = new_state;
+
+        if crossing {
+            if is_positive_literal {
+                let count = self
+                    .positive_counts
+                    .get_mut(slot)
+                    .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+                *count = count
+                    .checked_add(1)
+                    .ok_or(GranmoModelError::BctArithmeticOverflow)?;
+            }
+            self.view_recompute_mask(slot)?;
+        }
+        Ok(())
+    }
+
+    /// Decrements one automaton state (floor at 1), maintaining the count
+    /// cache and recomputing the slot mask on an include→exclude crossing.
+    fn view_decrement_state(&mut self, local_literal: usize) -> Result<(), GranmoModelError> {
+        let boundary_plus_one = self
+            .depth_n
+            .checked_add(1)
+            .ok_or(GranmoModelError::BctArithmeticOverflow)?;
+        let state = *self
+            .states
+            .get(local_literal)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+        if state <= 1 {
+            return Ok(()); // floor; no change
+        }
+
+        let new_state = state
+            .checked_sub(1)
+            .ok_or(GranmoModelError::BctArithmeticOverflow)?;
+        *self
+            .states
+            .get_mut(local_literal)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)? = new_state;
+
+        // Crossing include→exclude happens when the OLD state was N+1.
+        if state == boundary_plus_one {
+            let positive_region_len = self.patch_size * BYTE_ALPHABET_SIZE;
+            let is_positive_literal = local_literal < positive_region_len;
+            let slot = if is_positive_literal {
+                local_literal / BYTE_ALPHABET_SIZE
+            } else {
+                (local_literal - positive_region_len) / BYTE_ALPHABET_SIZE
+            };
+            if is_positive_literal {
+                let count = self
+                    .positive_counts
+                    .get_mut(slot)
+                    .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+                // saturating_sub as defence-in-depth; a validated invariant
+                // means this can never actually saturate.
+                *count = count.saturating_sub(1);
+            }
+            self.view_recompute_mask(slot)?;
+        }
+        Ok(())
+    }
+
+    /// Type Ia: clause fired and should have — reinforce the literal
+    /// pattern of ONE sampled fired window. Semantics and coin-draw ORDER
+    /// are byte-identical to the pre-parallel implementation; only the
+    /// stream identity changed (per-clause, see `derive_clause_stream_seed`).
+    fn view_apply_type_ia_feedback(
+        &mut self,
+        document: &[u8],
+        effective_len: usize,
+        window_start: usize,
+        rng: &mut FastRng,
+    ) -> Result<(), GranmoModelError> {
+        let reinforce_threshold = self.reinforce_threshold;
+        let forget_threshold = self.forget_threshold;
+        for slot in 0..self.patch_size {
+            let observed = ByteConvTM::window_byte(document, effective_len, window_start, slot);
+            for byte_value in 0..BYTE_ALPHABET_SIZE {
+                let positive_local = self.view_positive_local_index(slot, byte_value);
+                let negated_local = self.view_negated_local_index(slot, byte_value);
+                let positive_literal_true = byte_value == usize::from(observed);
+
+                if positive_literal_true {
+                    if rng.coin(reinforce_threshold) {
+                        self.view_increment_state(positive_local)?;
+                    }
+                } else if rng.coin(forget_threshold) {
+                    self.view_decrement_state(positive_local)?;
+                }
+
+                // Negated literal truth is the complement.
+                if !positive_literal_true {
+                    if rng.coin(reinforce_threshold) {
+                        self.view_increment_state(negated_local)?;
+                    }
+                } else if rng.coin(forget_threshold) {
+                    self.view_decrement_state(negated_local)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Type Ib: clause should have fired but did not at ANY window —
+    /// input-independent uniform decay with P ≈ 1/s.
+    fn view_apply_type_ib_feedback(&mut self, rng: &mut FastRng) -> Result<(), GranmoModelError> {
+        let forget_threshold = self.forget_threshold;
+        let literals_total = self.states.len();
+        for local_literal in 0..literals_total {
+            if rng.coin(forget_threshold) {
+                self.view_decrement_state(local_literal)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Type II: clause fired but should not have — deterministically
+    /// increment every literal FALSE in one sampled fired window.
+    fn view_apply_type_ii_feedback(
+        &mut self,
+        document: &[u8],
+        effective_len: usize,
+        window_start: usize,
+    ) -> Result<(), GranmoModelError> {
+        for slot in 0..self.patch_size {
+            let observed = usize::from(ByteConvTM::window_byte(
+                document,
+                effective_len,
+                window_start,
+                slot,
+            ));
+            for byte_value in 0..BYTE_ALPHABET_SIZE {
+                if byte_value != observed {
+                    let positive_local = self.view_positive_local_index(slot, byte_value);
+                    self.view_increment_state(positive_local)?;
+                }
+            }
+            let negated_local = self.view_negated_local_index(slot, observed);
+            self.view_increment_state(negated_local)?;
+        }
+        Ok(())
+    }
+}
+
+/// Pass-1 result for one clause: did it fire anywhere, and which fired
+/// window did the reservoir sample. `Copy` so worker chunks can be merged
+/// and re-read in pass 2 with no allocation.
+#[derive(Debug, Clone, Copy)]
+struct ConvClauseScanOutcome {
+    fired: bool,
+    sampled_window_start: usize,
+}
+
+/// Pass 1 body for a contiguous clause range (read-only against the
+/// engine). Used by BOTH the single-threaded path and each worker thread,
+/// so the two cannot diverge.
+fn conv_scan_clause_range(
+    engine: &ByteConvTM,
+    document: &[u8],
+    step_seed: u64,
+    first_clause: usize,
+    outcomes: &mut [ConvClauseScanOutcome],
+) -> Result<(), GranmoModelError> {
+    for (offset, outcome_slot) in outcomes.iter_mut().enumerate() {
+        let clause = first_clause
+            .checked_add(offset)
+            .ok_or(GranmoModelError::ParClauseViewGeometryFault)?;
+        let mut clause_rng = FastRng::seed(derive_clause_stream_seed(
+            step_seed,
+            clause as u64,
+            RNG_PURPOSE_WINDOW_SCAN,
+        ));
+        let (fired_count, sampled_start) =
+            engine.scan_clause_reservoir(clause, document, &mut clause_rng)?;
+        *outcome_slot = ConvClauseScanOutcome {
+            fired: fired_count > 0,
+            sampled_window_start: sampled_start,
+        };
+    }
+    Ok(())
+}
+
+/// Pass 2 body for a contiguous range of clause views. Used by BOTH the
+/// single-threaded path and each worker thread.
+fn conv_apply_feedback_to_view_range(
+    views: &mut [ConvClauseWorkView<'_>],
+    scan_outcomes: &[ConvClauseScanOutcome],
+    document: &[u8],
+    effective_len: usize,
+    step_seed: u64,
+    gates: FeedbackGates,
+    label_is_positive: bool,
+) -> Result<(), GranmoModelError> {
+    for view in views.iter_mut() {
+        let clause = view.view_clause_index();
+        let outcome = *scan_outcomes
+            .get(clause)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+        let positive_polarity = clause % 2 == 0;
+
+        // Which feedback family, and which gate, this clause receives.
+        let (gate, receives_type_i) = if label_is_positive {
+            (gates.gate_when_target, positive_polarity)
+        } else {
+            (gates.gate_when_other, !positive_polarity)
+        };
+
+        let mut clause_rng = FastRng::seed(derive_clause_stream_seed(
+            step_seed,
+            clause as u64,
+            RNG_PURPOSE_CLAUSE_FEEDBACK,
+        ));
+        let draw = clause_rng.gen_index(gates.two_t)? as i32;
+        if draw >= gate {
+            continue; // gated out this step
+        }
+
+        if receives_type_i {
+            if outcome.fired {
+                view.view_apply_type_ia_feedback(
+                    document,
+                    effective_len,
+                    outcome.sampled_window_start,
+                    &mut clause_rng,
+                )?;
+            } else {
+                view.view_apply_type_ib_feedback(&mut clause_rng)?;
+            }
+        } else if outcome.fired {
+            view.view_apply_type_ii_feedback(
+                document,
+                effective_len,
+                outcome.sampled_window_start,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 impl ByteConvTM {
     /// Builds the probability LUT matched to THIS engine's clause count and
     /// vote threshold. Routing construction through the enforced newtypes
     /// re-validates both values, so a corrupted engine cannot silently
     /// produce a mis-sized table (value-integrity rule).
-    pub fn build_probability_lut(&self) -> Result<ProbabilityLut, GranmoModelError> {
+    pub fn conv_build_probability_lut(&self) -> Result<ProbabilityLut, GranmoModelError> {
         let clause_count =
             u16::try_from(self.n_clauses).map_err(|_| GranmoModelError::BctIndexOutOfRange)?;
         let threshold =
@@ -1433,7 +2026,7 @@ impl ByteConvTM {
     // --- Public inference surface -------------------------------------------
 
     /// Signed vote sum V = Σ fired(+) − Σ fired(−) over OR-pooled clauses.
-    pub fn vote_sum(&self, document: &[u8]) -> Result<i32, GranmoModelError> {
+    pub fn conv_vote_sum(&self, document: &[u8]) -> Result<i32, GranmoModelError> {
         let mut vote: i32 = 0;
         for clause in 0..self.n_clauses {
             if self.clause_fires_any(clause, document)? {
@@ -1450,18 +2043,18 @@ impl ByteConvTM {
 
     /// Binary prediction: label 1 iff `V > decision_threshold` (default 0;
     /// the threshold is a free sweep axis for imbalance handling, §8).
-    pub fn predict(
+    pub fn conv_predict(
         &self,
         document: &[u8],
         decision_threshold: i32,
     ) -> Result<bool, GranmoModelError> {
-        Ok(self.vote_sum(document)? > decision_threshold)
+        Ok(self.conv_vote_sum(document)? > decision_threshold)
     }
 
     /// The fired-clause bitset: the free-byproduct binary document embedding
     /// (§7.2). Bit `c` set iff clause `c` fired; Hamming distance between
     /// bitsets is a learned document similarity.
-    pub fn fired_clause_bits(&self, document: &[u8]) -> Result<Vec<u64>, GranmoModelError> {
+    pub fn conv_fired_clause_bits(&self, document: &[u8]) -> Result<Vec<u64>, GranmoModelError> {
         let word_count = self
             .n_clauses
             .checked_add(63)
@@ -1582,318 +2175,263 @@ impl ByteConvTM {
 
     // --- Mask derivation and cache maintenance ------------------------------
 
+    /// Builds an exclusive mutable view of ONE clause (sequential paths:
+    /// cache rebuild, test helpers).
+    fn conv_build_clause_view(
+        &mut self,
+        clause: usize,
+    ) -> Result<ConvClauseWorkView<'_>, GranmoModelError> {
+        if clause >= self.n_clauses {
+            return Err(GranmoModelError::BctIndexOutOfRange);
+        }
+        // P4 properties are read through the per-clause accessors BEFORE
+        // any mutable borrow is taken (the M-Hetero seam).
+        let properties = ConvClauseProperties {
+            depth_n: self.depth_for_clause(clause),
+            forget_threshold: self.forget_threshold_for_clause(clause),
+            reinforce_threshold: self.reinforce_threshold_for_clause(clause),
+            guarded_include: self.guard_for_clause(clause),
+        };
+        let literals_per_clause = self.literals_per_clause();
+        let patch = self.patch_size;
+
+        let state_start = clause
+            .checked_mul(literals_per_clause)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+        let state_end = state_start
+            .checked_add(literals_per_clause)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+        let slot_start = clause
+            .checked_mul(patch)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+        let slot_end = slot_start
+            .checked_add(patch)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+
+        Ok(ConvClauseWorkView {
+            clause_index: clause,
+            patch_size: patch,
+            depth_n: properties.depth_n,
+            forget_threshold: properties.forget_threshold,
+            reinforce_threshold: properties.reinforce_threshold,
+            guarded_include: properties.guarded_include,
+            states: self
+                .ta_states
+                .get_mut(state_start..state_end)
+                .ok_or(GranmoModelError::ParClauseViewGeometryFault)?,
+            masks: self
+                .allowed_masks
+                .get_mut(slot_start..slot_end)
+                .ok_or(GranmoModelError::ParClauseViewGeometryFault)?,
+            positive_counts: self
+                .positive_include_counts
+                .get_mut(slot_start..slot_end)
+                .ok_or(GranmoModelError::ParClauseViewGeometryFault)?,
+        })
+    }
+
+    /// Builds exclusive mutable views of EVERY clause at once, by zipping
+    /// `chunks_mut` over the three storage vectors. The borrow checker
+    /// proves the ranges are disjoint, which is exactly what permits
+    /// handing contiguous view ranges to different threads with no
+    /// `unsafe`, no locks, and no atomics.
+    fn conv_build_all_clause_views(
+        &mut self,
+    ) -> Result<Vec<ConvClauseWorkView<'_>>, GranmoModelError> {
+        let clause_total = self.n_clauses;
+        let literals_per_clause = self.literals_per_clause();
+        let patch = self.patch_size;
+
+        // Snapshot P4 properties through the accessors BEFORE the mutable
+        // borrows below (the accessors need `&self`).
+        let mut clause_properties: Vec<ConvClauseProperties> = Vec::with_capacity(clause_total);
+        for clause in 0..clause_total {
+            clause_properties.push(ConvClauseProperties {
+                depth_n: self.depth_for_clause(clause),
+                forget_threshold: self.forget_threshold_for_clause(clause),
+                reinforce_threshold: self.reinforce_threshold_for_clause(clause),
+                guarded_include: self.guard_for_clause(clause),
+            });
+        }
+
+        let mut views: Vec<ConvClauseWorkView<'_>> = Vec::with_capacity(clause_total);
+        let state_chunks = self.ta_states.chunks_mut(literals_per_clause);
+        let mask_chunks = self.allowed_masks.chunks_mut(patch);
+        let count_chunks = self.positive_include_counts.chunks_mut(patch);
+
+        for (clause_index, ((state_chunk, mask_chunk), count_chunk)) in
+            state_chunks.zip(mask_chunks).zip(count_chunks).enumerate()
+        {
+            let properties = *clause_properties
+                .get(clause_index)
+                .ok_or(GranmoModelError::ParClauseViewGeometryFault)?;
+            if state_chunk.len() != literals_per_clause
+                || mask_chunk.len() != patch
+                || count_chunk.len() != patch
+            {
+                return Err(GranmoModelError::ParClauseViewGeometryFault);
+            }
+            views.push(ConvClauseWorkView {
+                clause_index,
+                patch_size: patch,
+                depth_n: properties.depth_n,
+                forget_threshold: properties.forget_threshold,
+                reinforce_threshold: properties.reinforce_threshold,
+                guarded_include: properties.guarded_include,
+                states: state_chunk,
+                masks: mask_chunk,
+                positive_counts: count_chunk,
+            });
+        }
+        if views.len() != clause_total {
+            return Err(GranmoModelError::ParClauseViewGeometryFault);
+        }
+        Ok(views)
+    }
+
+    /// Recomputes and stores the mask for (clause, slot) through the clause
+    /// view, so live training and the artifact-load rebuild share one
+    /// implementation.
+    fn recompute_mask(&mut self, clause: usize, slot: usize) -> Result<(), GranmoModelError> {
+        let mut clause_view = self.conv_build_clause_view(clause)?;
+        clause_view.view_recompute_mask(slot)
+    }
+
+    // --- Automaton transitions (ALL state changes route through these) ------
+
     /// Recomputes the allowed-bytes mask for (clause, slot) purely from raw
-    /// automaton states. Semantics (§4 of the specification of record):
-    /// - 0 positive includes: byte b allowed iff negated(b) not included;
-    /// - 1 positive include b*: only b* allowed, and only if negated(b*)
-    ///   is not also included;
-    /// - ≥2 positive includes: NOTHING allowed (structurally dead slot —
-    ///   the state the GuardedInclude variant refuses to enter).
+    /// automaton states, via the shared `derive_allowed_mask_from_states`
+    /// helper (the single source of truth for mask semantics). Read-only
+    /// path: used by validation and by the artifact-load cache rebuild.
     fn compute_mask_from_states(
         &self,
         clause: usize,
         slot: usize,
     ) -> Result<[u64; MASK_WORDS], GranmoModelError> {
         let depth_n = self.depth_for_clause(clause);
-        let pos_start = self.global_state_index(clause, self.positive_local_index(slot, 0))?;
-        let neg_start = self.global_state_index(clause, self.negated_local_index(slot, 0))?;
-        let pos_end = pos_start
+        let positive_start = self.global_state_index(clause, self.positive_local_index(slot, 0))?;
+        let negated_start = self.global_state_index(clause, self.negated_local_index(slot, 0))?;
+        let positive_end = positive_start
             .checked_add(BYTE_ALPHABET_SIZE)
             .ok_or(GranmoModelError::BctIndexOutOfRange)?;
-        let neg_end = neg_start
+        let negated_end = negated_start
             .checked_add(BYTE_ALPHABET_SIZE)
             .ok_or(GranmoModelError::BctIndexOutOfRange)?;
-        let pos_states = self
+        let positive_states = self
             .ta_states
-            .get(pos_start..pos_end)
+            .get(positive_start..positive_end)
             .ok_or(GranmoModelError::BctIndexOutOfRange)?;
-        let neg_states = self
+        let negated_states = self
             .ta_states
-            .get(neg_start..neg_end)
+            .get(negated_start..negated_end)
             .ok_or(GranmoModelError::BctIndexOutOfRange)?;
-
-        let included_positive_total = pos_states.iter().filter(|&&s| s > depth_n).count();
-
-        let mut mask = [0u64; MASK_WORDS];
-        if included_positive_total <= 1 {
-            for byte_value in 0..BYTE_ALPHABET_SIZE {
-                let negated_included = neg_states[byte_value] > depth_n;
-                let positive_ok = included_positive_total == 0 || pos_states[byte_value] > depth_n;
-                if positive_ok && !negated_included {
-                    mask[byte_value >> 6] |= 1u64 << (byte_value & 63);
-                }
-            }
-        }
-        Ok(mask)
-    }
-
-    /// Recomputes and stores the mask for (clause, slot). Called ONLY from
-    /// the two transition methods on boundary crossings — the invariant that
-    /// keeps evaluation O(K) bit-tests.
-    fn recompute_mask(&mut self, clause: usize, slot: usize) -> Result<(), GranmoModelError> {
-        let fresh_mask = self.compute_mask_from_states(clause, slot)?;
-        let slot_idx = self.global_slot_index(clause, slot)?;
-        let stored = self
-            .allowed_masks
-            .get_mut(slot_idx)
-            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
-        *stored = fresh_mask;
-        Ok(())
-    }
-
-    // --- Automaton transitions (ALL state changes route through these) ------
-
-    /// Increments one automaton state (saturating at 2N), maintaining the
-    /// positive-include count cache and recomputing the affected slot mask
-    /// on an exclude→include boundary crossing.
-    ///
-    /// GuardedInclude variant (ablation flag): a POSITIVE literal is refused
-    /// the crossing while another positive literal at the same slot is
-    /// already included — the state clamps at the boundary N. This prunes
-    /// only provably-dead joint configurations (see design notes Q4a).
-    fn increment_ta_state(
-        &mut self,
-        clause: usize,
-        local_literal: usize,
-    ) -> Result<(), GranmoModelError> {
-        let depth_n = self.depth_for_clause(clause);
-        let twice_n = depth_n
-            .checked_mul(2)
-            .ok_or(GranmoModelError::BctArithmeticOverflow)?;
-        let global = self.global_state_index(clause, local_literal)?;
-        let state = *self
-            .ta_states
-            .get(global)
-            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
-
-        if state >= twice_n {
-            return Ok(()); // saturated deep-include; no change
-        }
-
-        let positive_region_len = self.patch_size * BYTE_ALPHABET_SIZE;
-        let is_positive_literal = local_literal < positive_region_len;
-        let crossing = state == depth_n;
-
-        if crossing && is_positive_literal && self.guard_for_clause(clause) {
-            let slot = local_literal / BYTE_ALPHABET_SIZE;
-            let slot_idx = self.global_slot_index(clause, slot)?;
-            let current_count = *self
-                .positive_include_counts
-                .get(slot_idx)
-                .ok_or(GranmoModelError::BctIndexOutOfRange)?;
-            if current_count > 0 {
-                return Ok(()); // guard refuses the crossing; clamp at boundary
-            }
-        }
-
-        let new_state = state
-            .checked_add(1)
-            .ok_or(GranmoModelError::BctArithmeticOverflow)?;
-        *self
-            .ta_states
-            .get_mut(global)
-            .ok_or(GranmoModelError::BctIndexOutOfRange)? = new_state;
-
-        if crossing {
-            let slot = if is_positive_literal {
-                local_literal / BYTE_ALPHABET_SIZE
-            } else {
-                (local_literal - positive_region_len) / BYTE_ALPHABET_SIZE
-            };
-            if is_positive_literal {
-                let slot_idx = self.global_slot_index(clause, slot)?;
-                let count = self
-                    .positive_include_counts
-                    .get_mut(slot_idx)
-                    .ok_or(GranmoModelError::BctIndexOutOfRange)?;
-                *count = count
-                    .checked_add(1)
-                    .ok_or(GranmoModelError::BctArithmeticOverflow)?;
-            }
-            self.recompute_mask(clause, slot)?;
-        }
-        Ok(())
-    }
-
-    /// Decrements one automaton state (floor at 1), maintaining the count
-    /// cache and recomputing the slot mask on an include→exclude crossing.
-    fn decrement_ta_state(
-        &mut self,
-        clause: usize,
-        local_literal: usize,
-    ) -> Result<(), GranmoModelError> {
-        let depth_n = self.depth_for_clause(clause);
-        let boundary_plus_one = depth_n
-            .checked_add(1)
-            .ok_or(GranmoModelError::BctArithmeticOverflow)?;
-        let global = self.global_state_index(clause, local_literal)?;
-        let state = *self
-            .ta_states
-            .get(global)
-            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
-
-        if state <= 1 {
-            return Ok(()); // floor; no change
-        }
-
-        let new_state = state
-            .checked_sub(1)
-            .ok_or(GranmoModelError::BctArithmeticOverflow)?;
-        *self
-            .ta_states
-            .get_mut(global)
-            .ok_or(GranmoModelError::BctIndexOutOfRange)? = new_state;
-
-        // Crossing include→exclude happens when the OLD state was N+1.
-        if state == boundary_plus_one {
-            let positive_region_len = self.patch_size * BYTE_ALPHABET_SIZE;
-            let is_positive_literal = local_literal < positive_region_len;
-            let slot = if is_positive_literal {
-                local_literal / BYTE_ALPHABET_SIZE
-            } else {
-                (local_literal - positive_region_len) / BYTE_ALPHABET_SIZE
-            };
-            if is_positive_literal {
-                let slot_idx = self.global_slot_index(clause, slot)?;
-                let count = self
-                    .positive_include_counts
-                    .get_mut(slot_idx)
-                    .ok_or(GranmoModelError::BctIndexOutOfRange)?;
-                // saturating_sub as defence-in-depth; a validated invariant
-                // means this can never actually saturate.
-                *count = count.saturating_sub(1);
-            }
-            self.recompute_mask(clause, slot)?;
-        }
-        Ok(())
-    }
-
-    // --- Feedback (Phase 1 semantics preserved; §3 established facts) --------
-
-    /// Type Ia: clause fired and should have — reinforce the literal pattern
-    /// of ONE sampled fired window. True literals strengthen with
-    /// P ≈ (s−1)/s; false literals decay with P ≈ 1/s. All draws are u16
-    /// threshold coins — integer-only. Cost O(K × 512) literal visits.
-    /// Thresholds are fetched once per event through the per-clause
-    /// accessors (the M-Hetero seam); the coin-draw ORDER is unchanged, so
-    /// seeded runs are bit-identical to the pre-accessor implementation.
-    fn apply_type_ia_feedback(
-        &mut self,
-        clause: usize,
-        document: &[u8],
-        effective_len: usize,
-        window_start: usize,
-        rng: &mut FastRng,
-    ) -> Result<(), GranmoModelError> {
-        let reinforce_threshold = self.reinforce_threshold_for_clause(clause);
-        let forget_threshold = self.forget_threshold_for_clause(clause);
-        for slot in 0..self.patch_size {
-            let observed = Self::window_byte(document, effective_len, window_start, slot);
-            for byte_value in 0..BYTE_ALPHABET_SIZE {
-                let pos_local = self.positive_local_index(slot, byte_value);
-                let neg_local = self.negated_local_index(slot, byte_value);
-                let positive_literal_true = byte_value == usize::from(observed);
-
-                if positive_literal_true {
-                    if rng.coin(reinforce_threshold) {
-                        self.increment_ta_state(clause, pos_local)?;
-                    }
-                } else if rng.coin(forget_threshold) {
-                    self.decrement_ta_state(clause, pos_local)?;
-                }
-
-                // Negated literal truth is the complement.
-                if !positive_literal_true {
-                    if rng.coin(reinforce_threshold) {
-                        self.increment_ta_state(clause, neg_local)?;
-                    }
-                } else if rng.coin(forget_threshold) {
-                    self.decrement_ta_state(clause, neg_local)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Type Ib: clause should have fired but did not at ANY window —
-    /// input-independent uniform decay with P ≈ 1/s (no window selection is
-    /// meaningful here; §3 fact 3), freeing the clause to learn afresh.
-    fn apply_type_ib_feedback(
-        &mut self,
-        clause: usize,
-        rng: &mut FastRng,
-    ) -> Result<(), GranmoModelError> {
-        let forget_threshold = self.forget_threshold_for_clause(clause);
-        for local_literal in 0..self.literals_per_clause() {
-            if rng.coin(forget_threshold) {
-                self.decrement_ta_state(clause, local_literal)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Type II: clause fired but should not have — push toward including a
-    /// blocking literal by incrementing every literal FALSE in one sampled
-    /// fired window. (In a fired window all included literals are true, so
-    /// every false literal is currently excluded; incrementing it moves it
-    /// toward blocking.) Deterministic — no randomness in Type II.
-    fn apply_type_ii_feedback(
-        &mut self,
-        clause: usize,
-        document: &[u8],
-        effective_len: usize,
-        window_start: usize,
-    ) -> Result<(), GranmoModelError> {
-        for slot in 0..self.patch_size {
-            let observed = usize::from(Self::window_byte(
-                document,
-                effective_len,
-                window_start,
-                slot,
-            ));
-            for byte_value in 0..BYTE_ALPHABET_SIZE {
-                if byte_value != observed {
-                    // Positive literal (slot, b≠observed) is false here.
-                    self.increment_ta_state(clause, self.positive_local_index(slot, byte_value))?;
-                }
-            }
-            // Negated literal (slot, observed) is false here.
-            self.increment_ta_state(clause, self.negated_local_index(slot, observed))?;
-        }
-        Ok(())
+        derive_allowed_mask_from_states(positive_states, negated_states, depth_n)
     }
 
     // --- Training ------------------------------------------------------------
 
-    /// One stochastic training update for one document.
+    /// One stochastic training update for one document, single-threaded.
     ///
-    /// Binary single-bank semantics (§4): label=1 target ⇒ positive-polarity
-    /// clauses get Type I and negative-polarity fired clauses get Type II,
-    /// gated per clause with P = (T−V)/2T; label=0 mirrors with (T+V)/2T.
-    /// The gate is an exact integer comparison computed by the shared
-    /// `resolve_feedback_gates` helper (Section 5C) — shared so ByteBagTM
-    /// uses the byte-identical gate implementation. Scanning (immutable)
-    /// completes for ALL clauses before any state mutation, so every
-    /// clause's feedback is attributed against the pre-update model — the
-    /// same discipline as Phase 1.
-    pub fn train_step(
+    /// Byte-identical to `conv_train_step_with_workers(..., WorkerCount 1)`
+    /// — and, by the per-clause RNG contract, byte-identical to ANY worker
+    /// count. Retained as the convenience entry point for tests and callers
+    /// that do not thread a worker count through.
+    pub fn conv_train_step(
         &mut self,
         document: &[u8],
         label_is_positive: bool,
         rng: &mut FastRng,
     ) -> Result<(), GranmoModelError> {
-        let (effective_len, _single_padded) = self.scan_plan(document);
+        self.conv_train_step_with_workers(document, label_is_positive, rng, WorkerCount::new(1)?)
+    }
 
-        // Pass 1 (immutable): per-clause fired flag + reservoir-sampled
-        // window + running vote sum. One scratch Vec per step (training is
-        // a research-harness path; per-step heap here is accepted and
-        // documented — the inference path allocates nothing).
-        let mut fired_and_sample: Vec<(bool, usize)> = Vec::with_capacity(self.n_clauses);
+    /// One stochastic training update for one document, fork-join over the
+    /// clause bank.
+    ///
+    /// ## Structure
+    /// Pass 1 (read-only, parallel): each worker scans its clause range,
+    /// reservoir-sampling one fired window per clause. Reduce: the signed
+    /// vote sum V (an EXACT integer sum, hence order-independent — a float
+    /// reduction would not be). Gates: the shared `resolve_feedback_gates`.
+    /// Pass 2 (mutating, parallel): each worker applies feedback to its own
+    /// clause views only, which the borrow checker proves are disjoint.
+    ///
+    /// ## Determinism
+    /// Every clause draws from its own stream derived from (step seed,
+    /// clause, purpose), so the result does not depend on the worker count
+    /// or on the thread schedule. The master `rng` advances by exactly one
+    /// `next_u64()` per step at every worker count.
+    ///
+    /// ## Scheduling note (recorded, not hidden)
+    /// This spawns one scope per pass per document. If profiling shows
+    /// spawn cost dominating per-document work, the next iteration is a
+    /// persistent worker pool with two `std::sync::Barrier`s held across an
+    /// epoch — a pure scheduling change with no effect on results.
+    pub fn conv_train_step_with_workers(
+        &mut self,
+        document: &[u8],
+        label_is_positive: bool,
+        rng: &mut FastRng,
+        worker_count: WorkerCount,
+    ) -> Result<(), GranmoModelError> {
+        let (effective_len, _single_padded) = self.scan_plan(document);
+        let clause_total = self.n_clauses;
+        // EXACTLY one master draw per step, at every worker count.
+        let step_seed = rng.next_u64();
+        let worker_total = resolve_effective_worker_count(worker_count, clause_total)?;
+        let chunk_size = resolve_work_chunk_size(clause_total, worker_total)?;
+
+        // --- Pass 1: scan (read-only against the engine) ---
+        let mut scan_outcomes: Vec<ConvClauseScanOutcome> = vec![
+            ConvClauseScanOutcome {
+                fired: false,
+                sampled_window_start: 0,
+            };
+            clause_total
+        ];
+
+        if worker_total == 1 {
+            conv_scan_clause_range(self, document, step_seed, 0, &mut scan_outcomes)?;
+        } else {
+            let engine_shared: &ByteConvTM = self;
+            let scan_results: Vec<Result<(), GranmoModelError>> =
+                std::thread::scope(|scan_scope| {
+                    let mut worker_handles = Vec::with_capacity(worker_total);
+                    for (chunk_index, outcome_chunk) in
+                        scan_outcomes.chunks_mut(chunk_size).enumerate()
+                    {
+                        worker_handles.push(scan_scope.spawn(move || {
+                            let first_clause = chunk_index
+                                .checked_mul(chunk_size)
+                                .ok_or(GranmoModelError::ParClauseViewGeometryFault)?;
+                            conv_scan_clause_range(
+                                engine_shared,
+                                document,
+                                step_seed,
+                                first_clause,
+                                outcome_chunk,
+                            )
+                        }));
+                    }
+                    worker_handles
+                        .into_iter()
+                        .map(|handle| match handle.join() {
+                            Ok(worker_result) => worker_result,
+                            // join() errs only on a worker panic. Production
+                            // code never panics: report, never re-raise.
+                            Err(_panic_payload) => Err(GranmoModelError::ParWorkerJoinFailed),
+                        })
+                        .collect()
+                });
+            for worker_result in scan_results {
+                worker_result?;
+            }
+        }
+
+        // --- Reduce: vote sum (exact integer, order-independent) ---
         let mut vote: i32 = 0;
-        for clause in 0..self.n_clauses {
-            let (fired_count, sampled_start) = self.scan_clause_reservoir(clause, document, rng)?;
-            let fired = fired_count > 0;
-            if fired {
+        for (clause, outcome) in scan_outcomes.iter().enumerate() {
+            if outcome.fired {
                 vote = if clause % 2 == 0 {
                     vote.checked_add(1)
                 } else {
@@ -1901,45 +2439,50 @@ impl ByteConvTM {
                 }
                 .ok_or(GranmoModelError::BctArithmeticOverflow)?;
             }
-            fired_and_sample.push((fired, sampled_start));
         }
-
-        // Integer feedback gates (shared helper, Section 5C).
         let gates = resolve_feedback_gates(vote, self.vote_threshold)?;
 
-        // Pass 2 (mutable): per-clause gated feedback.
-        for clause in 0..self.n_clauses {
-            let (fired, sampled_start) = *fired_and_sample
-                .get(clause)
-                .ok_or(GranmoModelError::BctIndexOutOfRange)?;
-            let positive_polarity = clause % 2 == 0;
+        // --- Pass 2: feedback (mutating, disjoint clause views) ---
+        let mut clause_views = self.conv_build_all_clause_views()?;
 
-            // Which feedback family, and which gate, this clause receives.
-            let (gate, receives_type_i) = if label_is_positive {
-                (gates.gate_when_target, positive_polarity)
-            } else {
-                (gates.gate_when_other, !positive_polarity)
-            };
-
-            let draw = rng.gen_index(gates.two_t)? as i32;
-            if draw >= gate {
-                continue; // gated out this step
-            }
-
-            if receives_type_i {
-                if fired {
-                    self.apply_type_ia_feedback(
-                        clause,
-                        document,
-                        effective_len,
-                        sampled_start,
-                        rng,
-                    )?;
-                } else {
-                    self.apply_type_ib_feedback(clause, rng)?;
-                }
-            } else if fired {
-                self.apply_type_ii_feedback(clause, document, effective_len, sampled_start)?;
+        if worker_total == 1 {
+            conv_apply_feedback_to_view_range(
+                &mut clause_views,
+                &scan_outcomes,
+                document,
+                effective_len,
+                step_seed,
+                gates,
+                label_is_positive,
+            )?;
+        } else {
+            let outcomes_shared: &[ConvClauseScanOutcome] = &scan_outcomes;
+            let feedback_results: Vec<Result<(), GranmoModelError>> =
+                std::thread::scope(|feedback_scope| {
+                    let mut worker_handles = Vec::with_capacity(worker_total);
+                    for view_chunk in clause_views.chunks_mut(chunk_size) {
+                        worker_handles.push(feedback_scope.spawn(move || {
+                            conv_apply_feedback_to_view_range(
+                                view_chunk,
+                                outcomes_shared,
+                                document,
+                                effective_len,
+                                step_seed,
+                                gates,
+                                label_is_positive,
+                            )
+                        }));
+                    }
+                    worker_handles
+                        .into_iter()
+                        .map(|handle| match handle.join() {
+                            Ok(worker_result) => worker_result,
+                            Err(_panic_payload) => Err(GranmoModelError::ParWorkerJoinFailed),
+                        })
+                        .collect()
+                });
+            for worker_result in feedback_results {
+                worker_result?;
             }
         }
         Ok(())
@@ -1955,7 +2498,7 @@ impl ByteConvTM {
     /// clause may carry its own band, and this loop is already shaped for
     /// that. Call after any artifact load (same pattern as Phase 1) and
     /// after training in tests.
-    pub fn validate_internal_consistency(&self) -> Result<(), GranmoModelError> {
+    pub fn conv_validate_internal_consistency(&self) -> Result<(), GranmoModelError> {
         // Storage-geometry gate: the state vector must be exactly
         // clause_count × literals_per_clause, or the per-clause slicing
         // below could silently skip trailing states.
@@ -2029,29 +2572,28 @@ impl ByteConvTM {
     }
 
     /// Read accessor for the clause count (research harness / reporting).
-    pub fn clause_count(&self) -> usize {
+    pub fn conv_clause_count(&self) -> usize {
         self.n_clauses
     }
 
     /// Test-only helper: forces a literal fully into the include region via
-    /// the counter-maintaining transition path, so tests can hand-construct
-    /// exact clauses without breaking the mask/count invariants. Terminates
-    /// when the state stops changing (saturated at 2N, or refused by the
-    /// GuardedInclude clamp).
+    /// the cache-maintaining view transition path, so tests can
+    /// hand-construct exact clauses without breaking the mask/count
+    /// invariants. Terminates when the state stops changing (saturated at
+    /// 2N, or refused by the GuardedInclude clamp).
     #[cfg(test)]
     fn conv_test_force_include(&mut self, clause: usize, local_literal: usize) {
         loop {
-            let global = self.global_state_index(clause, local_literal).unwrap();
-            let before = self.ta_states[global];
-            self.increment_ta_state(clause, local_literal).unwrap();
-            let after = self.ta_states[global];
+            let mut clause_view = self.conv_build_clause_view(clause).unwrap();
+            let before = clause_view.states[local_literal];
+            clause_view.view_increment_state(local_literal).unwrap();
+            let after = clause_view.states[local_literal];
             if after == before {
                 break;
             }
         }
     }
 }
-
 // ===========================================================================
 // SECTION 5B: ClassifierEngine — engine-agnostic dispatch (R1 refactor)
 // ===========================================================================
@@ -2083,18 +2625,6 @@ pub enum ClassifierEngine {
     ByteBag(ByteBagTM),
 }
 
-// ---[ DROP NOTE 2.2c-i — removable ]---------------------------------------
-// Pending rename cleanup (scheduled after Drop 2.2c-ii, before the session
-// handoff): eight ByteConvTM method names currently duplicate the dispatch
-// method names on this enum (vote_sum, predict, train_step,
-// fired_clause_bits, describe_clause, validate_internal_consistency,
-// clause_count, build_probability_lut), plus test_force_include. Proposal
-// of record: ByteConvTM methods gain a `conv_` prefix (symmetric with the
-// `bag_` prefix), leaving each plain name existing exactly once — on this
-// enum, as the sole public dispatch surface. Constructor-name (`new`)
-// policy is a separate decision item at cleanup time.
-// ---[ end drop note ]-------------------------------------------------------
-
 impl ClassifierEngine {
     /// Stable engine identifier for reports, run labels, and the
     /// `--engine` CLI value.
@@ -2114,42 +2644,65 @@ impl ClassifierEngine {
     }
 
     /// Signed vote sum V (semantics documented per engine).
-    pub fn conv_vote_sum(&self, document: &[u8]) -> Result<i32, GranmoModelError> {
+    pub fn engine_vote_sum(&self, document: &[u8]) -> Result<i32, GranmoModelError> {
         match self {
             Self::ByteConv(conv_engine) => conv_engine.conv_vote_sum(document),
             Self::ByteBag(bag_engine) => bag_engine.bag_vote_sum(document),
         }
     }
 
-    /// Binary prediction: label 1 iff `V > decision_threshold` (default 0;
-    /// the threshold is a free sweep axis for imbalance handling, §8).
-    pub fn conv_predict(
+    /// Binary prediction: label 1 iff `V > decision_threshold`.
+    pub fn engine_predict(
         &self,
         document: &[u8],
         decision_threshold: i32,
     ) -> Result<bool, GranmoModelError> {
-        Ok(self.conv_vote_sum(document)? > decision_threshold)
+        match self {
+            Self::ByteConv(conv_engine) => conv_engine.conv_predict(document, decision_threshold),
+            Self::ByteBag(bag_engine) => bag_engine.bag_predict(document, decision_threshold),
+        }
     }
 
-    /// One stochastic training update for one document.
-    pub fn conv_train_step(
+    /// One stochastic training update for one document (dispatch),
+    /// single-threaded. Equivalent to `engine_train_step_with_workers`
+    /// with `WorkerCount::new(1)` at every worker count.
+    pub fn engine_train_step(
         &mut self,
         document: &[u8],
         label_is_positive: bool,
         rng: &mut FastRng,
     ) -> Result<(), GranmoModelError> {
+        self.engine_train_step_with_workers(document, label_is_positive, rng, WorkerCount::new(1)?)
+    }
+
+    /// One stochastic training update for one document (dispatch), with
+    /// clause-level fork-join across `worker_count` threads. PERFORMANCE-
+    /// ONLY: results are byte-identical at every worker count.
+    pub fn engine_train_step_with_workers(
+        &mut self,
+        document: &[u8],
+        label_is_positive: bool,
+        rng: &mut FastRng,
+        worker_count: WorkerCount,
+    ) -> Result<(), GranmoModelError> {
         match self {
-            Self::ByteConv(conv_engine) => {
-                conv_engine.conv_train_step(document, label_is_positive, rng)
-            }
-            Self::ByteBag(bag_engine) => {
-                bag_engine.bag_train_step(document, label_is_positive, rng)
-            }
+            Self::ByteConv(conv_engine) => conv_engine.conv_train_step_with_workers(
+                document,
+                label_is_positive,
+                rng,
+                worker_count,
+            ),
+            Self::ByteBag(bag_engine) => bag_engine.bag_train_step_with_workers(
+                document,
+                label_is_positive,
+                rng,
+                worker_count,
+            ),
         }
     }
 
     /// Fired-clause bitset (embedding deliverable §7.2; fire-rate input).
-    pub fn conv_fired_clause_bits(&self, document: &[u8]) -> Result<Vec<u64>, GranmoModelError> {
+    pub fn engine_fired_clause_bits(&self, document: &[u8]) -> Result<Vec<u64>, GranmoModelError> {
         match self {
             Self::ByteConv(conv_engine) => conv_engine.conv_fired_clause_bits(document),
             Self::ByteBag(bag_engine) => bag_engine.bag_fired_clause_bits(document),
@@ -2160,7 +2713,7 @@ impl ClassifierEngine {
     /// SPAN reporting (e.g. conv window offsets) is deliberately NOT here:
     /// spans are positional concepts that not every engine has, so callers
     /// needing them match the variant (see `handle_predict`).
-    pub fn describe_clause(
+    pub fn engine_describe_clause(
         &self,
         clause: usize,
         max_rendered_literals: usize,
@@ -2176,7 +2729,7 @@ impl ClassifierEngine {
     }
 
     /// Full derived-cache and state-band validation (artifact load gate 4).
-    pub fn conv_validate_internal_consistency(&self) -> Result<(), GranmoModelError> {
+    pub fn engine_validate_internal_consistency(&self) -> Result<(), GranmoModelError> {
         match self {
             Self::ByteConv(conv_engine) => conv_engine.conv_validate_internal_consistency(),
             Self::ByteBag(bag_engine) => bag_engine.bag_validate_internal_consistency(),
@@ -2184,7 +2737,7 @@ impl ClassifierEngine {
     }
 
     /// Clause count (reporting; LUT sizing).
-    pub fn conv_clause_count(&self) -> usize {
+    pub fn engine_clause_count(&self) -> usize {
         match self {
             Self::ByteConv(conv_engine) => conv_engine.conv_clause_count(),
             Self::ByteBag(bag_engine) => bag_engine.bag_clause_count(),
@@ -2192,7 +2745,7 @@ impl ClassifierEngine {
     }
 
     /// Probability LUT matched to this engine's clause count and T.
-    pub fn conv_build_probability_lut(&self) -> Result<ProbabilityLut, GranmoModelError> {
+    pub fn engine_build_probability_lut(&self) -> Result<ProbabilityLut, GranmoModelError> {
         match self {
             Self::ByteConv(conv_engine) => conv_engine.conv_build_probability_lut(),
             Self::ByteBag(bag_engine) => bag_engine.bag_build_probability_lut(),
@@ -2219,6 +2772,7 @@ impl ClassifierEngine {
 /// (Drop 2.2b) uses the byte-identical gate implementation: the §8
 /// comparison discipline requires the two engines to differ ONLY in
 /// feature structure, never in shared training mechanics.
+#[derive(Debug, Clone, Copy)]
 struct FeedbackGates {
     /// Gate for the clause polarity aligned with the document's label.
     gate_when_target: i32,
@@ -2983,7 +3537,7 @@ impl ModelArtifact {
         }
 
         // Gate 4: full consistency validation, engine-agnostic.
-        engine.validate_internal_consistency()?;
+        engine.engine_validate_internal_consistency()?;
 
         Ok(Self {
             preprocess_profile: profile,
@@ -3034,11 +3588,11 @@ impl ByteConvTM {
 impl ByteBagTM {
     /// Rebuilds both include masks purely from raw automaton states
     /// (artifact-load path, gate 3). Masks are zeroed and re-derived
-    /// through the same `bag_set_include_bit` path used by live training.
+    /// through the SAME view transition path used by live training, so
+    /// there is exactly one implementation of include-bit semantics.
     /// After this, `bag_validate_internal_consistency` must pass by
     /// construction — it is still run as the final load gate
-    /// (defence-in-depth, mirroring the conv engine's
-    /// `rebuild_caches_from_states` pattern).
+    /// (defence-in-depth, mirroring `rebuild_caches_from_states`).
     fn bag_rebuild_masks_from_states(&mut self) -> Result<(), GranmoModelError> {
         for word in self.bag_positive_include_masks.iter_mut() {
             *word = 0;
@@ -3046,25 +3600,9 @@ impl ByteBagTM {
         for word in self.bag_negated_include_masks.iter_mut() {
             *word = 0;
         }
-        let feature_count = self.bag_feature_count();
-        for clause in 0..self.bag_clause_total {
-            let clause_depth = self.bag_depth_for_clause(clause);
-            for rank in 0..feature_count {
-                let positive_state = *self
-                    .bag_ta_states
-                    .get(self.bag_state_index(clause, rank)?)
-                    .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
-                if positive_state > clause_depth {
-                    self.bag_set_include_bit(clause, rank, true)?;
-                }
-                let negated_state = *self
-                    .bag_ta_states
-                    .get(self.bag_state_index(clause, feature_count + rank)?)
-                    .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
-                if negated_state > clause_depth {
-                    self.bag_set_include_bit(clause, feature_count + rank, true)?;
-                }
-            }
+        let mut clause_views = self.bag_build_all_clause_views()?;
+        for clause_view in clause_views.iter_mut() {
+            clause_view.view_bag_rebuild_include_bits()?;
         }
         Ok(())
     }
@@ -3552,7 +4090,7 @@ pub fn load_labeled_jsonl(
     };
 
     let mut documents: Vec<LabeledDocument> = Vec::new();
-    for (line_index, line) in raw.split(|&b| b == b'\n').enumerate() {
+    for (_line_index, line) in raw.split(|&b| b == b'\n').enumerate() {
         // Explicit match rather than '?': the line NUMBER is the diagnostic
         // that makes a malformed-file report actionable, and it exists only
         // at this site. (Line numbers are positional, not PII; line CONTENT
@@ -3568,7 +4106,7 @@ pub fn load_labeled_jsonl(
                 eprintln!(
                     "DS-{}: JSONL parse error at line {}",
                     parse_error.code(),
-                    line_index.saturating_add(1)
+                    _line_index.saturating_add(1)
                 );
                 return Err(parse_error);
             }
@@ -3628,6 +4166,11 @@ pub struct HarnessRunConfig {
     pub guarded_include: bool,
     pub epochs: u32,
     pub seed: u64,
+    /// Worker threads for clause-parallel training and document-parallel
+    /// evaluation. PERFORMANCE-ONLY: every value in `WorkerCount` range
+    /// produces byte-identical results, so this field never affects a
+    /// comparison-matrix row's science, only its wall-clock.
+    pub worker_count: u16,
 }
 
 /// Everything a comparison-matrix row needs from one run.
@@ -3651,6 +4194,11 @@ pub struct ExperimentReport {
     /// vote-imbalance risk and for deciding whether the CoTM clause-weight
     /// arm gets pulled forward.
     pub clause_fire_counts: Vec<u32>,
+    /// Test documents misclassified at the default threshold V > 0,
+    /// captured for the misprediction inspection log. Pairs raw and
+    /// preprocessed text so label errors AND preprocessing artifacts are
+    /// both auditable.
+    pub mispredictions: Vec<MispredictionRecord>,
 }
 
 /// Preprocesses every document ONCE through the given profile — the
@@ -3697,6 +4245,341 @@ fn vote_from_fired_words(
         }
     }
     Ok(vote)
+}
+
+// ---------------------------------------------------------------------------
+// Misprediction inspection log (research-harness tier)
+// ---------------------------------------------------------------------------
+//
+// Purpose: after evaluation, every test document the model got wrong at the
+// default decision threshold (V > 0) is captured so an operator can inspect
+// whether the DATA is wrong (mislabeled "golden" records are common in
+// scraped corpora) or the MODEL is wrong. Records carry BOTH the raw bytes
+// (what the dataset says) and the preprocessed bytes (what the engine
+// actually scored), because preprocessing differences are themselves a
+// frequent cause of mispredictions and the two views diverge under most
+// presets.
+//
+// Policies (matching crate law):
+// - Absolute paths only. The DEFAULT log path is resolved against the
+//   executable's parent directory (the crate's logging rule of thumb), so
+//   it never depends on the caller's working directory.
+// - Logging is BEST-EFFORT at call sites: a failed log write must never
+//   abort a training run whose report has already been produced. Callers
+//   receive the Result and decide; the provided CLI hooks warn and proceed.
+// - Error paths allocate nothing and carry no PII (codes only); document
+//   text goes to the log FILE, never to stderr.
+
+/// One captured misprediction: a test document the engine classified
+/// incorrectly at the default decision threshold (V > 0).
+#[derive(Debug, Clone)]
+pub struct MispredictionRecord {
+    /// Raw un-preprocessed document bytes, exactly as loaded from the
+    /// dataset (for auditing the LABEL against the original text).
+    pub raw_text_bytes: Vec<u8>,
+    /// Preprocessed document bytes, exactly as the engine scored them
+    /// (for auditing the MODEL's view of the text).
+    pub preprocessed_text_bytes: Vec<u8>,
+    /// Ground-truth label from the dataset (true = positive / 1).
+    pub actual_label_is_positive: bool,
+    /// Predicted label at the default threshold V > 0.
+    pub predicted_label_is_positive: bool,
+    /// The signed vote sum V that produced the prediction. A small |V|
+    /// means a near-miss; a large wrong-signed |V| means the model is
+    /// confidently wrong — the most interesting records to inspect.
+    pub vote_sum_at_prediction: i32,
+}
+
+/// Resolves the default misprediction-log path: `<executable_dir>/logs/
+/// misprediction_log.txt`. Anchoring to the executable's parent directory
+/// (rather than the working directory) keeps the location deterministic
+/// across shells, cron jobs, and IDE runners — the absolute-path policy's
+/// intent. Failure to locate the executable is reported, never guessed
+/// around.
+pub fn resolve_default_misprediction_log_path() -> Result<std::path::PathBuf, GranmoModelError> {
+    let executable_path = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(_dropped_io_detail) => {
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "CLI-808: could not resolve executable path: {}",
+                _dropped_io_detail
+            );
+            return Err(GranmoModelError::CliLogPathNotAbsolute);
+        }
+    };
+    let executable_dir = match executable_path.parent() {
+        Some(dir) => dir,
+        None => return Err(GranmoModelError::CliLogPathNotAbsolute),
+    };
+    let resolved = executable_dir.join("logs").join("misprediction_log.txt");
+    if !resolved.is_absolute() {
+        return Err(GranmoModelError::CliLogPathNotAbsolute);
+    }
+    Ok(resolved)
+}
+
+/// Appends misprediction records to a persistent inspection log.
+///
+/// One record per line, tab-separated fields:
+/// `data_path`, `run_label` (preset), `engine`, `actual`, `pred`, `vote`,
+/// `raw_text`, `prep_text`. Interior newlines/carriage returns and tabs in
+/// document text are replaced with spaces so the file stays strictly
+/// line-per-record and field-per-tab (greppable / spreadsheet-importable).
+/// Text is rendered with lossy UTF-8 so arbitrary byte streams (this is a
+/// byte-level model) remain printable without ever panicking.
+///
+/// Behavior contract:
+/// - `log_path` must be absolute (crate-wide policy) -> `CliLogPathNotAbsolute`.
+/// - Empty `mispredictions` is a successful no-op: the file and directory
+///   are NOT created for a clean run.
+/// - Append mode: prior runs' records are preserved (this is the point —
+///   accumulating a cross-run inspection corpus).
+/// - No `?` on I/O: each failure site maps to its specific code explicitly.
+pub fn append_mispredictions_to_log(
+    log_path: &std::path::Path,
+    data_source_path: &std::path::Path,
+    run_label: &str,
+    engine_name: &str,
+    mispredictions: &[MispredictionRecord],
+) -> Result<(), GranmoModelError> {
+    if mispredictions.is_empty() {
+        return Ok(()); // clean run: deliberately no file/dir creation
+    }
+    if !log_path.is_absolute() {
+        #[cfg(debug_assertions)]
+        eprintln!("CLI-808: log path not absolute: {}", log_path.display());
+        return Err(GranmoModelError::CliLogPathNotAbsolute);
+    }
+
+    if let Some(parent_dir) = log_path.parent() {
+        if !parent_dir.as_os_str().is_empty() {
+            if let Err(_dropped_io_detail) = std::fs::create_dir_all(parent_dir) {
+                #[cfg(debug_assertions)]
+                eprintln!("CLI-809: log dir create failed: {}", _dropped_io_detail);
+                return Err(GranmoModelError::CliLogDirCreateFailed);
+            }
+        }
+    }
+
+    let opened_file = match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+    {
+        Ok(file) => file,
+        Err(_dropped_io_detail) => {
+            #[cfg(debug_assertions)]
+            eprintln!("CLI-810: log open failed: {}", _dropped_io_detail);
+            return Err(GranmoModelError::CliLogWriteFailed);
+        }
+    };
+    let mut log_writer = std::io::BufWriter::new(opened_file);
+    use std::io::Write;
+
+    /// Renders document bytes as one log field: lossy UTF-8, with the
+    /// line/field separator characters folded to spaces.
+    fn render_log_text_field(text_bytes: &[u8]) -> String {
+        String::from_utf8_lossy(text_bytes)
+            .chars()
+            .map(|c| {
+                if matches!(c, '\n' | '\r' | '\t') {
+                    ' '
+                } else {
+                    c
+                }
+            })
+            .collect()
+    }
+
+    for record in mispredictions {
+        let write_outcome = writeln!(
+            log_writer,
+            "data_path={}\trun={}\tengine={}\tactual={}\tpred={}\tvote={}\traw_text=\"{}\"\tprep_text=\"{}\"",
+            data_source_path.display(),
+            run_label,
+            engine_name,
+            if record.actual_label_is_positive {
+                "1"
+            } else {
+                "0"
+            },
+            if record.predicted_label_is_positive {
+                "1"
+            } else {
+                "0"
+            },
+            record.vote_sum_at_prediction,
+            render_log_text_field(&record.raw_text_bytes),
+            render_log_text_field(&record.preprocessed_text_bytes),
+        );
+        if let Err(_dropped_io_detail) = write_outcome {
+            #[cfg(debug_assertions)]
+            eprintln!("CLI-810: log line write failed: {}", _dropped_io_detail);
+            return Err(GranmoModelError::CliLogWriteFailed);
+        }
+    }
+    if let Err(_dropped_io_detail) = log_writer.flush() {
+        #[cfg(debug_assertions)]
+        eprintln!("CLI-810: log flush failed: {}", _dropped_io_detail);
+        return Err(GranmoModelError::CliLogWriteFailed);
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Parallel test-set evaluation (research-harness tier)
+// ---------------------------------------------------------------------------
+//
+// Evaluation is read-only against a trained engine and consumes ZERO
+// randomness, so it parallelizes with no contract change at all. Bit-
+// identity at any worker count rests on two facts:
+//   1. `ClassifierEngine` has no interior mutability, so `&engine` is
+//      shareable across threads (auto `Sync`) with no lock and no clone;
+//   2. partials are merged strictly in CHUNK ORDER, which reconstructs the
+//      original document order exactly — so the vote/label vectors, the
+//      threshold sweep derived from them, and the misprediction-log record
+//      order are all unchanged from the sequential implementation.
+// Fire counts merge by exact integer addition (order-independent).
+
+/// One worker's partial evaluation results over a contiguous chunk of the
+/// test split.
+struct EvalChunkPartial {
+    correct_at_zero: usize,
+    clause_fire_counts: Vec<u32>,
+    vote_sums: Vec<i32>,
+    labels: Vec<bool>,
+    mispredictions: Vec<MispredictionRecord>,
+}
+
+/// Evaluates one contiguous chunk of test documents. Byte-identical logic
+/// to the previous inline evaluation loop; callable from one thread or many.
+fn evaluate_test_chunk(
+    engine: &ClassifierEngine,
+    prepared_chunk: &[(Vec<u8>, bool)],
+    raw_chunk: &[LabeledDocument],
+) -> Result<EvalChunkPartial, GranmoModelError> {
+    if prepared_chunk.len() != raw_chunk.len() {
+        return Err(GranmoModelError::ParEvalMergeGeometryFault);
+    }
+    let engine_clause_total = engine.engine_clause_count();
+    let mut partial = EvalChunkPartial {
+        correct_at_zero: 0,
+        clause_fire_counts: vec![0u32; engine_clause_total],
+        vote_sums: Vec::with_capacity(prepared_chunk.len()),
+        labels: Vec::with_capacity(prepared_chunk.len()),
+        mispredictions: Vec::new(),
+    };
+
+    for (doc_index, (document, label)) in prepared_chunk.iter().enumerate() {
+        let fired_words = engine.engine_fired_clause_bits(document)?;
+        let vote = vote_from_fired_words(&fired_words, engine_clause_total)?;
+        for clause in 0..engine_clause_total {
+            let fired_word = fired_words
+                .get(clause >> 6)
+                .copied()
+                .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+            if fired_word & (1u64 << (clause & 63)) != 0 {
+                let count_slot = partial
+                    .clause_fire_counts
+                    .get_mut(clause)
+                    .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+                *count_slot = count_slot
+                    .checked_add(1)
+                    .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+            }
+        }
+
+        let predicted_positive = vote > 0;
+        if predicted_positive == *label {
+            partial.correct_at_zero += 1;
+        } else {
+            let raw_original = raw_chunk
+                .get(doc_index)
+                .ok_or(GranmoModelError::ParEvalMergeGeometryFault)?;
+            partial.mispredictions.push(MispredictionRecord {
+                raw_text_bytes: raw_original.text.clone(),
+                preprocessed_text_bytes: document.clone(),
+                actual_label_is_positive: *label,
+                predicted_label_is_positive: predicted_positive,
+                vote_sum_at_prediction: vote,
+            });
+        }
+        partial.vote_sums.push(vote);
+        partial.labels.push(*label);
+    }
+    Ok(partial)
+}
+
+/// Evaluates the whole test split, splitting documents across workers and
+/// merging partials in chunk order. Value-identical to sequential
+/// evaluation for EVERY output field, at ANY worker count.
+fn evaluate_test_split_with_workers(
+    engine: &ClassifierEngine,
+    test_prepared: &[(Vec<u8>, bool)],
+    test_documents: &[LabeledDocument],
+    worker_count: WorkerCount,
+) -> Result<EvalChunkPartial, GranmoModelError> {
+    if test_prepared.len() != test_documents.len() {
+        return Err(GranmoModelError::ParEvalMergeGeometryFault);
+    }
+    let worker_total = resolve_effective_worker_count(worker_count, test_prepared.len())?;
+
+    if worker_total == 1 {
+        return evaluate_test_chunk(engine, test_prepared, test_documents);
+    }
+
+    let chunk_size = resolve_work_chunk_size(test_prepared.len(), worker_total)?;
+    let chunk_outcomes: Vec<Result<EvalChunkPartial, GranmoModelError>> =
+        std::thread::scope(|eval_scope| {
+            let mut worker_handles = Vec::with_capacity(worker_total);
+            for (prepared_chunk, raw_chunk) in test_prepared
+                .chunks(chunk_size)
+                .zip(test_documents.chunks(chunk_size))
+            {
+                worker_handles.push(
+                    eval_scope
+                        .spawn(move || evaluate_test_chunk(engine, prepared_chunk, raw_chunk)),
+                );
+            }
+            worker_handles
+                .into_iter()
+                .map(|handle| match handle.join() {
+                    Ok(worker_result) => worker_result,
+                    Err(_panic_payload) => Err(GranmoModelError::ParWorkerJoinFailed),
+                })
+                .collect()
+        });
+
+    // Ordered merge: chunk order == original document order.
+    let engine_clause_total = engine.engine_clause_count();
+    let mut merged = EvalChunkPartial {
+        correct_at_zero: 0,
+        clause_fire_counts: vec![0u32; engine_clause_total],
+        vote_sums: Vec::with_capacity(test_prepared.len()),
+        labels: Vec::with_capacity(test_prepared.len()),
+        mispredictions: Vec::new(),
+    };
+    for chunk_outcome in chunk_outcomes {
+        let partial = chunk_outcome?;
+        merged.correct_at_zero += partial.correct_at_zero;
+        merged.vote_sums.extend(partial.vote_sums);
+        merged.labels.extend(partial.labels);
+        merged.mispredictions.extend(partial.mispredictions);
+        for (total_slot, chunk_count) in merged
+            .clause_fire_counts
+            .iter_mut()
+            .zip(partial.clause_fire_counts.iter())
+        {
+            *total_slot = total_slot
+                .checked_add(*chunk_count)
+                .ok_or(GranmoModelError::ParEvalMergeGeometryFault)?;
+        }
+    }
+    if merged.vote_sums.len() != test_prepared.len() {
+        return Err(GranmoModelError::ParEvalMergeGeometryFault);
+    }
+    Ok(merged)
 }
 
 /// Trains one engine and evaluates it on the held-out set.
@@ -3764,8 +4647,28 @@ pub fn run_single_experiment(
         }
     };
 
+    // let mut rng = FastRng::seed(config.seed);
+    // let mut order: Vec<usize> = (0..train_prepared.len()).collect();
+
+    // let start = std::time::Instant::now();
+    // for _epoch in 0..config.epochs {
+    //     // Per-epoch shuffle of the visitation order (documents themselves
+    //     // are never moved — only the index order).
+    //     shuffle_in_place(&mut order, &mut rng)?;
+    //     for &doc_index in &order {
+    //         let (document, label) = train_prepared
+    //             .get(doc_index)
+    //             .map(|(d, l)| (d, *l))
+    //             .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+    //         engine.engine_train_step(document, label, &mut rng)?;
+    //     }
+    // }
+    // let train_seconds = start.elapsed().as_secs_f64();
+
+    // parallel version
     let mut rng = FastRng::seed(config.seed);
     let mut order: Vec<usize> = (0..train_prepared.len()).collect();
+    let resolved_worker_count = WorkerCount::new(config.worker_count)?;
 
     let start = std::time::Instant::now();
     for _epoch in 0..config.epochs {
@@ -3777,41 +4680,122 @@ pub fn run_single_experiment(
                 .get(doc_index)
                 .map(|(d, l)| (d, *l))
                 .ok_or(GranmoModelError::BctIndexOutOfRange)?;
-            engine.train_step(document, label, &mut rng)?;
+            engine.engine_train_step_with_workers(
+                document,
+                label,
+                &mut rng,
+                resolved_worker_count,
+            )?;
         }
     }
     let train_seconds = start.elapsed().as_secs_f64();
 
+    // // Evaluation pass: fired bits -> vote + fire counts (see doc above).
+    // let engine_clause_total = engine.engine_clause_count();
+    // let mut clause_fire_counts: Vec<u32> = vec![0u32; engine_clause_total];
+    // let mut vote_sums = Vec::with_capacity(test_prepared.len());
+    // let mut labels = Vec::with_capacity(test_prepared.len());
+    // let mut correct_at_zero = 0usize;
+    // for (document, label) in &test_prepared {
+    //     let fired_words = engine.engine_fired_clause_bits(document)?;
+    //     let vote = vote_from_fired_words(&fired_words, engine_clause_total)?;
+    //     for clause in 0..engine_clause_total {
+    //         let fired_word = fired_words
+    //             .get(clause >> 6)
+    //             .copied()
+    //             .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+    //         if fired_word & (1u64 << (clause & 63)) != 0 {
+    //             let count_slot = clause_fire_counts
+    //                 .get_mut(clause)
+    //                 .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+    //             *count_slot = count_slot
+    //                 .checked_add(1)
+    //                 .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+    //         }
+    //     }
+    //     if (vote > 0) == *label {
+    //         correct_at_zero += 1;
+    //     }
+    //     vote_sums.push(vote);
+    //     labels.push(*label);
+    // }
+
     // Evaluation pass: fired bits -> vote + fire counts (see doc above).
-    let engine_clause_total = engine.clause_count();
-    let mut clause_fire_counts: Vec<u32> = vec![0u32; engine_clause_total];
-    let mut vote_sums = Vec::with_capacity(test_prepared.len());
-    let mut labels = Vec::with_capacity(test_prepared.len());
-    let mut correct_at_zero = 0usize;
-    for (document, label) in &test_prepared {
-        let fired_words = engine.fired_clause_bits(document)?;
-        let vote = vote_from_fired_words(&fired_words, engine_clause_total)?;
-        for clause in 0..engine_clause_total {
-            let fired_word = fired_words
-                .get(clause >> 6)
-                .copied()
-                .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
-            if fired_word & (1u64 << (clause & 63)) != 0 {
-                let count_slot = clause_fire_counts
-                    .get_mut(clause)
-                    .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
-                *count_slot = count_slot
-                    .checked_add(1)
-                    .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
-            }
-        }
-        if (vote > 0) == *label {
-            correct_at_zero += 1;
-        }
-        vote_sums.push(vote);
-        labels.push(*label);
-    }
-    let accuracy_at_zero = correct_at_zero as f64 / test_prepared.len() as f64;
+    //
+    // INVARIANT (misprediction capture): `test_prepared` was produced by
+    // `preprocess_documents`, which emits exactly one output per input in
+    // input order — so index i pairs each prepared document with its raw
+    // original in `test_documents`. If preprocessing ever filters or
+    // reorders, this pairing breaks; the length check below catches that
+    // in every mode, not just debug.
+    // if test_prepared.len() != test_documents.len() {
+    //     return Err(GranmoModelError::CliFireRateReportInternalFault);
+    // }
+
+    // let engine_clause_total = engine.engine_clause_count();
+    // let mut clause_fire_counts: Vec<u32> = vec![0u32; engine_clause_total];
+    // let mut vote_sums = Vec::with_capacity(test_prepared.len());
+    // let mut labels = Vec::with_capacity(test_prepared.len());
+    // let mut mispredictions: Vec<MispredictionRecord> = Vec::new();
+    // let mut correct_at_zero = 0usize;
+
+    // for (doc_index, (document, label)) in test_prepared.iter().enumerate() {
+    //     let fired_words = engine.engine_fired_clause_bits(document)?;
+    //     let vote = vote_from_fired_words(&fired_words, engine_clause_total)?;
+    //     for clause in 0..engine_clause_total {
+    //         let fired_word = fired_words
+    //             .get(clause >> 6)
+    //             .copied()
+    //             .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+    //         if fired_word & (1u64 << (clause & 63)) != 0 {
+    //             let count_slot = clause_fire_counts
+    //                 .get_mut(clause)
+    //                 .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+    //             *count_slot = count_slot
+    //                 .checked_add(1)
+    //                 .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+    //         }
+    //     }
+
+    //     let predicted_positive = vote > 0;
+    //     if predicted_positive == *label {
+    //         correct_at_zero += 1;
+    //     } else {
+    //         let raw_original = test_documents
+    //             .get(doc_index)
+    //             .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+    //         mispredictions.push(MispredictionRecord {
+    //             raw_text_bytes: raw_original.text.clone(),
+    //             preprocessed_text_bytes: document.clone(),
+    //             actual_label_is_positive: *label,
+    //             predicted_label_is_positive: predicted_positive,
+    //             vote_sum_at_prediction: vote,
+    //         });
+    //     }
+    //     vote_sums.push(vote);
+    //     labels.push(*label);
+    // }
+
+    // let accuracy_at_zero = correct_at_zero as f64 / test_prepared.len() as f64;
+
+    // parallel
+    // INVARIANT (misprediction capture): `test_prepared` was produced by
+    // `preprocess_documents`, which emits exactly one output per input in
+    // input order — so index i pairs each prepared document with its raw
+    // original in `test_documents`. If preprocessing ever filters or
+    // reorders, this pairing breaks; the length check inside the evaluator
+    // catches that in every mode, not just debug.
+    let evaluation = evaluate_test_split_with_workers(
+        &engine,
+        &test_prepared,
+        test_documents,
+        resolved_worker_count,
+    )?;
+    let clause_fire_counts = evaluation.clause_fire_counts;
+    let vote_sums = evaluation.vote_sums;
+    let labels = evaluation.labels;
+    let mispredictions = evaluation.mispredictions;
+    let accuracy_at_zero = evaluation.correct_at_zero as f64 / test_prepared.len() as f64;
 
     let sweep_rows = sweep_decision_thresholds(&vote_sums, &labels)?;
     let mut best_f1_row = sweep_rows
@@ -3832,6 +4816,7 @@ pub fn run_single_experiment(
         best_f1_row,
         train_seconds,
         clause_fire_counts,
+        mispredictions,
     };
     Ok((engine, report))
 }
@@ -3868,6 +4853,9 @@ struct CliArgs {
     model_out: Option<std::path::PathBuf>,
     model_in: Option<std::path::PathBuf>,
     predict_text: Option<String>,
+    log_out: Option<std::path::PathBuf>,
+    /// `None` = resolve automatically from available parallelism.
+    worker_count: Option<u16>,
 }
 
 /// Maps a preset name to its profile (§5 presets of record).
@@ -3933,19 +4921,21 @@ impl CliArgs {
             patch_size: 5,
             stride: 2,
             bag_ngram_len: 5,
-            bag_vocab_size: 4000,
-            n_clauses: 200,
+            bag_vocab_size: 100, // default for quick test: moderate/normal: 4000
+            n_clauses: 50,       // default for quick test: moderate/normal: 100-200
             vote_threshold: 50,
-            states_per_action: 100,
+            states_per_action: 10, // default for quick test: moderate/normal: 100
             specificity: 5.0,
             max_scan_bytes: 1024,
             guarded_include: false,
-            epochs: 25,
+            epochs: 5, // default for quick test: moderate/normal: 25
             seed: 42,
             train_percent: 80,
             model_out: None,
             model_in: None,
             predict_text: None,
+            log_out: None,
+            worker_count: None,
         };
 
         /// Fetches the value after a flag; a flag at end-of-args is an error.
@@ -4036,6 +5026,17 @@ impl CliArgs {
                     print_help();
                     std::process::exit(0);
                 }
+                "--log-out" => {
+                    parsed.log_out = Some(std::path::PathBuf::from(take_value(args, &mut i, flag)?))
+                }
+                "--workers" => {
+                    let raw_value = take_value(args, &mut i, flag)?;
+                    parsed.worker_count = if raw_value == "auto" {
+                        Some(WorkerCount::resolve_automatic().get()?)
+                    } else {
+                        Some(parse_flag_number::<u16>(flag, raw_value)?)
+                    };
+                }
                 _unknown => {
                     #[cfg(debug_assertions)]
                     eprintln!("CLI-800: unknown flag '{}'", _unknown);
@@ -4064,6 +5065,15 @@ impl CliArgs {
             guarded_include: self.guarded_include,
             epochs: self.epochs,
             seed: self.seed,
+            worker_count: {
+                // Resolve, then validate through the enforced newtype so an
+                // out-of-range --workers fails fast at the CLI boundary.
+                let resolved = match self.worker_count {
+                    Some(explicit) => explicit,
+                    None => WorkerCount::resolve_automatic().get()?,
+                };
+                WorkerCount::new(resolved)?.get()?
+            },
         })
     }
 }
@@ -4086,6 +5096,9 @@ fn print_help() {
     println!("  --clauses 200 | --vote-threshold 50 | --states 100");
     println!("  --specificity 5.0 | --max-scan 1024 | --epochs 25 | --seed 42");
     println!("  --train-percent 80 | --model-out /abs/path.gmb");
+    println!("  --log-out /abs/path.txt  (misprediction inspection log; default: <exe_dir>/logs/)");
+    println!("  --workers auto  (thread count; PERFORMANCE-ONLY — results are");
+    println!("                   byte-identical at every worker count)");
 }
 
 /// Formats the S2-8 fire-rate diagnostic as one compact line: counts of
@@ -4124,34 +5137,188 @@ fn summarize_fire_counts(clause_fire_counts: &[u32], test_count: usize) -> Strin
     )
 }
 
-/// Prints one experiment report (reporting tier: println is this code's
-/// output channel, not a diagnostic leak).
+// /// Prints one experiment report (reporting tier: println is this code's
+// /// output channel, not a diagnostic leak).
+// fn print_experiment_report(run_label: &str, report: &ExperimentReport) {
+//     println!(
+//         "--- run: {run_label} [engine: {}] ---",
+//         report.engine_name_reported
+//     );
+//     println!(
+//         "  train/test: {}/{}   train time: {:.2}s",
+//         report.train_count, report.test_count, report.train_seconds
+//     );
+//     println!("  accuracy @ V>0:   {:.4}", report.accuracy_at_zero);
+//     let best = &report.best_f1_row;
+//     println!(
+//         "  best-F1 threshold {}: P {:.4} R {:.4} F1 {:.4}  (TP {} FP {} TN {} FN {})",
+//         best.decision_threshold,
+//         best.precision,
+//         best.recall,
+//         best.f1,
+//         best.true_positives,
+//         best.false_positives,
+//         best.true_negatives,
+//         best.false_negatives
+//     );
+//     println!(
+//         "  {}",
+//         summarize_fire_counts(&report.clause_fire_counts, report.test_count)
+//     );
+// }
+
+/// Prints a formatted classification evaluation report with metrics,
+/// a 2x2 confusion matrix grid, and clause fire-rate diagnostics.
 fn print_experiment_report(run_label: &str, report: &ExperimentReport) {
-    println!(
-        "--- run: {run_label} [engine: {}] ---",
-        report.engine_name_reported
-    );
-    println!(
-        "  train/test: {}/{}   train time: {:.2}s",
-        report.train_count, report.test_count, report.train_seconds
-    );
-    println!("  accuracy @ V>0:   {:.4}", report.accuracy_at_zero);
     let best = &report.best_f1_row;
+
+    println!("\n============================================================");
+    println!("               Classification Evaluation Report             ");
+    println!("============================================================");
     println!(
-        "  best-F1 threshold {}: P {:.4} R {:.4} F1 {:.4}  (TP {} FP {} TN {} FN {})",
-        best.decision_threshold,
-        best.precision,
-        best.recall,
-        best.f1,
-        best.true_positives,
-        best.false_positives,
-        best.true_negatives,
-        best.false_negatives
+        "  Run Preset:        {:<12} (Engine: {})",
+        run_label, report.engine_name_reported
     );
+    println!(
+        "  Train/Test Split:  {}/{} samples",
+        report.train_count, report.test_count
+    );
+    println!("  Training Time:     {:.2}s", report.train_seconds);
+    println!("------------------------------------------------------------");
+    println!(
+        "  Accuracy (@ V > 0): {:.2}%",
+        report.accuracy_at_zero * 100.0
+    );
+    println!("  Best-F1 Threshold:  V > {}", best.decision_threshold);
+    println!("  Precision:          {:.4}", best.precision);
+    println!("  Recall:             {:.4}", best.recall);
+    println!("  F1-Score:           {:.4}", best.f1);
+    println!("------------------------------------------------------------");
+    println!("Confusion Matrix (at optimal threshold):");
+    println!("{:<18}{:<12}{:<12}", "", "Pred Neg (0)", "Pred Pos (1)");
+    println!(
+        "{:<18}{:<12}{:<12}",
+        "Actual Neg (0)", best.true_negatives, best.false_positives
+    );
+    println!(
+        "{:<18}{:<12}{:<12}",
+        "Actual Pos (1)", best.false_negatives, best.true_positives
+    );
+    println!("------------------------------------------------------------");
+    println!("Clause Dynamics:");
     println!(
         "  {}",
         summarize_fire_counts(&report.clause_fire_counts, report.test_count)
     );
+    println!("============================================================\n");
+}
+
+/*
+Alt version draft
+fn handle_train(args: &CliArgs) -> Result<(), GranmoModelError> {
+    let data_path = args
+        .data_path
+        .as_ref()
+        .ok_or(GranmoModelError::CliMissingRequiredFlag)?;
+
+    println!("[1/3] Loading dataset from: {}", data_path.display());
+    let documents = load_labeled_jsonl(
+        data_path,
+        &args.text_key,
+        &args.label_key,
+        &args.positive_label,
+    )?;
+    println!("  Total valid records loaded: {}", documents.len());
+
+    let mut split_rng = FastRng::seed(args.seed);
+    let (train_side, test_side) = split_dataset(&documents, args.train_percent, &mut split_rng)?;
+    println!(
+        "  Split dataset: {} train rows ({:.0}%), {} test rows ({:.0}%)",
+        train_side.len(),
+        args.train_percent,
+        test_side.len(),
+        100 - args.train_percent
+    );
+
+    let run_config = args.to_run_config()?;
+    println!("[2/3] Initializing {} engine with preset '{}'...",
+        args.engine_selection_from_name(&args.preset_name).map(|_| args.engine_selection).unwrap_or(EngineSelection::ByteConv).name(),
+        args.preset_name
+    );
+
+    println!(
+        "[3/3] Training {} ({} clauses, T={}, epochs={})...",
+        match run_config.engine_selection {
+            EngineSelection::ByteConv => "ByteConvTM",
+            EngineSelection::ByteBag => "ByteBagTM",
+        },
+        run_config.n_clauses,
+        run_config.vote_threshold,
+        run_config.epochs
+    );
+
+    let (engine, report) = run_single_experiment(&train_side, &test_side, &run_config)?;
+    print_experiment_report(&args.preset_name, &report);
+
+    if let Some(model_path) = &args.model_out {
+        let artifact = ModelArtifact {
+            preprocess_profile: run_config.profile,
+            engine,
+        };
+        artifact.save_to_file(model_path)?;
+        println!("Successfully saved trained model artifact to: {}", model_path.display());
+    }
+    Ok(())
+}
+*/
+
+/// Best-effort misprediction logging for the CLI handlers. Resolves the
+/// destination (`--log-out` override, else the executable-anchored
+/// default), attempts the append, and reports the outcome to stdout.
+/// DELIBERATELY NON-FATAL: a training run whose report has already printed
+/// must not exit nonzero because telemetry writing failed — the error code
+/// is surfaced for the operator instead of propagated.
+fn log_mispredictions_best_effort(
+    explicit_log_path: Option<&std::path::Path>,
+    data_source_path: &std::path::Path,
+    run_label: &str,
+    report: &ExperimentReport,
+) {
+    if report.mispredictions.is_empty() {
+        println!("misprediction log: no mispredictions this run (nothing appended)");
+        return;
+    }
+    let resolved_path = match explicit_log_path {
+        Some(path) => path.to_path_buf(),
+        None => match resolve_default_misprediction_log_path() {
+            Ok(path) => path,
+            Err(resolution_error) => {
+                println!(
+                    "misprediction log SKIPPED: path resolution failed (code {})",
+                    resolution_error.code()
+                );
+                return;
+            }
+        },
+    };
+    match append_mispredictions_to_log(
+        &resolved_path,
+        data_source_path,
+        run_label,
+        report.engine_name_reported,
+        &report.mispredictions,
+    ) {
+        Ok(()) => println!(
+            "misprediction log: appended {} records to {}",
+            report.mispredictions.len(),
+            resolved_path.display()
+        ),
+        Err(append_error) => println!(
+            "misprediction log FAILED (code {}, retryable: {}) — run results above are unaffected",
+            append_error.code(),
+            append_error.is_retryable()
+        ),
+    }
 }
 
 fn handle_train(args: &CliArgs) -> Result<(), GranmoModelError> {
@@ -4176,6 +5343,13 @@ fn handle_train(args: &CliArgs) -> Result<(), GranmoModelError> {
 
     let (engine, report) = run_single_experiment(&train_side, &test_side, &run_config)?;
     print_experiment_report(&args.preset_name, &report);
+
+    log_mispredictions_best_effort(
+        args.log_out.as_deref(),
+        data_path,
+        &args.preset_name,
+        &report,
+    );
 
     if let Some(model_path) = &args.model_out {
         let artifact = ModelArtifact {
@@ -4227,6 +5401,99 @@ fn handle_batch(args: &CliArgs) -> Result<(), GranmoModelError> {
     Ok(())
 }
 
+/*
+Alt version draft
+fn handle_predict(args: &CliArgs) -> Result<(), GranmoModelError> {
+    let model_path = args
+        .model_in
+        .as_ref()
+        .ok_or(GranmoModelError::CliMissingRequiredFlag)?;
+    let text = args
+        .predict_text
+        .as_ref()
+        .ok_or(GranmoModelError::CliMissingRequiredFlag)?;
+
+    let artifact = ModelArtifact::load_from_file(model_path)?;
+    let mut preprocessor = BytePreprocessor::new(artifact.preprocess_profile)?;
+    let processed = preprocessor.process_document(text.as_bytes())?;
+
+    let vote = artifact.engine.engine_vote_sum(&processed)?;
+    let lut = artifact.engine.engine_build_probability_lut()?;
+    let probability = lut.probability_for_report(vote)?;
+    let is_positive = vote > 0;
+
+    println!("\n============================================================");
+    println!("                    Single Text Inference                   ");
+    println!("============================================================");
+    println!("Input Text:        \"{}\"", text);
+    println!("Engine Model:      {}", artifact.engine.engine_name());
+    println!(
+        "Predicted Label:   {}",
+        if is_positive { "POSITIVE (1)" } else { "NEGATIVE (0)" }
+    );
+    println!("Signed Vote Sum:   {:+4} votes", vote);
+    println!("Calibrated Prob:   {:.2}%", probability * 100.0);
+    println!("------------------------------------------------------------");
+    println!("Triggered Logic Rules (Explainability Trace):");
+
+    let mut rules_printed = 0usize;
+    match &artifact.engine {
+        ClassifierEngine::ByteConv(conv_engine) => {
+            for clause in 0..conv_engine.conv_clause_count() {
+                if rules_printed >= 10 {
+                    break;
+                }
+                let positions = conv_engine.conv_fired_window_positions(clause, &processed)?;
+                if positions.is_empty() {
+                    continue;
+                }
+                let pattern = conv_engine.conv_describe_clause(clause, 12)?;
+                if pattern.is_empty() {
+                    continue;
+                }
+                let sign = if clause % 2 == 0 { "+ vote" } else { "- veto" };
+                println!(
+                    "  [Clause #{:<2} ({sign})] IF ( {} ) @ byte offsets {:?}",
+                    clause, pattern, positions
+                );
+                rules_printed += 1;
+            }
+        }
+        ClassifierEngine::ByteBag(bag_engine) => {
+            let fired_words = bag_engine.bag_fired_clause_bits(&processed)?;
+            for clause in 0..bag_engine.bag_clause_count() {
+                if rules_printed >= 10 {
+                    break;
+                }
+                let fired_word = fired_words
+                    .get(clause >> 6)
+                    .copied()
+                    .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+                if fired_word & (1u64 << (clause & 63)) == 0 {
+                    continue;
+                }
+                let pattern = bag_engine.bag_describe_clause(clause, 12)?;
+                if pattern.is_empty() {
+                    continue;
+                }
+                let sign = if clause % 2 == 0 { "+ vote" } else { "- veto" };
+                println!(
+                    "  [Clause #{:<2} ({sign})] IF ( {} )",
+                    clause, pattern
+                );
+                rules_printed += 1;
+            }
+        }
+    }
+
+    if rules_printed == 0 {
+        println!("  [No active specialized clauses fired; baseline vote applied]");
+    }
+
+    println!("============================================================\n");
+    Ok(())
+}
+*/
 fn handle_predict(args: &CliArgs) -> Result<(), GranmoModelError> {
     let model_path = args
         .model_in
@@ -4243,21 +5510,39 @@ fn handle_predict(args: &CliArgs) -> Result<(), GranmoModelError> {
     let processed = preprocessor.process_document(text.as_bytes())?;
 
     // Engine-agnostic surface: vote, probability, label.
-    let vote = artifact.engine.vote_sum(&processed)?;
-    let lut = artifact.engine.build_probability_lut()?;
+    let vote = artifact.engine.engine_vote_sum(&processed)?;
+    let lut = artifact.engine.engine_build_probability_lut()?;
     let probability = lut.probability_for_report(vote)?;
-    let label = vote > 0;
+    let label_is_positive = vote > 0;
 
-    println!("engine: {}", artifact.engine.engine_name());
+    // println!("engine: {}", artifact.engine.engine_name());
+    // println!(
+    //     "prediction: {}",
+    //     if label {
+    //         "POSITIVE (1)"
+    //     } else {
+    //         "NEGATIVE (0)"
+    //     }
+    // );
+    // println!("vote sum V = {vote}, probability {probability:.4}");
+
+    println!("\n============================================================");
+    println!("                    Single Text Inference                   ");
+    println!("============================================================");
+    println!("Input Text:        \"{}\"", text);
+    println!("Engine Model:      {}", artifact.engine.engine_name());
     println!(
-        "prediction: {}",
-        if label {
+        "Predicted Label:   {}",
+        if label_is_positive {
             "POSITIVE (1)"
         } else {
             "NEGATIVE (0)"
         }
     );
-    println!("vote sum V = {vote}, probability {probability:.4}");
+    println!("Signed Vote Sum:   {:+4} votes", vote);
+    println!("Calibrated Prob:   {:.2}%", probability * 100.0);
+    println!("------------------------------------------------------------");
+    println!("Triggered Logic Rules (Explainability Trace):");
 
     // Explainability trace — engine-specific by nature: the conv engine
     // reports byte-offset window spans (positional evidence); the bag has
@@ -4267,15 +5552,15 @@ fn handle_predict(args: &CliArgs) -> Result<(), GranmoModelError> {
     match &artifact.engine {
         ClassifierEngine::ByteConv(conv_engine) => {
             let mut rules_printed = 0usize;
-            for clause in 0..conv_engine.clause_count() {
+            for clause in 0..conv_engine.conv_clause_count() {
                 if rules_printed >= 10 {
                     break;
                 }
-                let positions = conv_engine.fired_window_positions(clause, &processed)?;
+                let positions = conv_engine.conv_fired_window_positions(clause, &processed)?;
                 if positions.is_empty() {
                     continue;
                 }
-                let pattern = conv_engine.describe_clause(clause, 12)?;
+                let pattern = conv_engine.conv_describe_clause(clause, 12)?;
                 if pattern.is_empty() {
                     continue; // empty clause fires everywhere; not a meaningful rule
                 }
@@ -4698,6 +5983,252 @@ pub struct ByteBagTM {
     bag_negated_include_masks: Vec<u64>,
 }
 
+/// Exclusive mutable access to ONE ByteBag clause's automaton states and
+/// its two include-mask word ranges. Same disjointness argument as
+/// `ConvClauseWorkView`: clause c owns `bag_ta_states[c*2M..(c+1)*2M]` and
+/// mask words `[c*W..(c+1)*W]` in both mask arrays, and nothing else.
+/// Indices are LOCAL to the clause (`0..2M`).
+pub struct BagClauseWorkView<'engine> {
+    clause_index: usize,
+    feature_count: usize,
+    depth_n: i16,
+    forget_threshold: u16,
+    reinforce_threshold: u16,
+    states: &'engine mut [i16],
+    positive_mask_words: &'engine mut [u64],
+    negated_mask_words: &'engine mut [u64],
+}
+
+impl<'engine> BagClauseWorkView<'engine> {
+    #[inline(always)]
+    fn view_bag_clause_index(&self) -> usize {
+        self.clause_index
+    }
+
+    /// Sets or clears one literal's include-mask bit. Called ONLY from the
+    /// two transition methods on boundary crossings (and from the
+    /// artifact-load rebuild) — a bag crossing maps to a single bit, so
+    /// set/clear is exact.
+    fn view_bag_set_include_bit(
+        &mut self,
+        local_literal: usize,
+        included: bool,
+    ) -> Result<(), GranmoModelError> {
+        let (rank, is_positive_literal) = if local_literal < self.feature_count {
+            (local_literal, true)
+        } else {
+            (local_literal - self.feature_count, false)
+        };
+        if rank >= self.feature_count {
+            return Err(GranmoModelError::BbgEngineIndexOutOfRange);
+        }
+        let word_index = rank >> 6;
+        let target_words = if is_positive_literal {
+            &mut *self.positive_mask_words
+        } else {
+            &mut *self.negated_mask_words
+        };
+        let word = target_words
+            .get_mut(word_index)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+        if included {
+            *word |= 1u64 << (rank & 63);
+        } else {
+            *word &= !(1u64 << (rank & 63));
+        }
+        Ok(())
+    }
+
+    /// Increments one automaton state (saturating at 2N), setting the
+    /// include bit on an exclude→include crossing.
+    fn view_bag_increment(&mut self, local_literal: usize) -> Result<(), GranmoModelError> {
+        let saturation_ceiling = self
+            .depth_n
+            .checked_mul(2)
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+        let current_state = *self
+            .states
+            .get(local_literal)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+        if current_state >= saturation_ceiling {
+            return Ok(());
+        }
+        let updated_state = current_state
+            .checked_add(1)
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+        *self
+            .states
+            .get_mut(local_literal)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)? = updated_state;
+        if current_state == self.depth_n {
+            self.view_bag_set_include_bit(local_literal, true)?;
+        }
+        Ok(())
+    }
+
+    /// Decrements one automaton state (floor at 1), clearing the include
+    /// bit on an include→exclude crossing.
+    fn view_bag_decrement(&mut self, local_literal: usize) -> Result<(), GranmoModelError> {
+        let boundary_plus_one = self
+            .depth_n
+            .checked_add(1)
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+        let current_state = *self
+            .states
+            .get(local_literal)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+        if current_state <= 1 {
+            return Ok(());
+        }
+        let updated_state = current_state
+            .checked_sub(1)
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+        *self
+            .states
+            .get_mut(local_literal)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)? = updated_state;
+        if current_state == boundary_plus_one {
+            self.view_bag_set_include_bit(local_literal, false)?;
+        }
+        Ok(())
+    }
+
+    /// Rebuilds this clause's include bits from its raw states
+    /// (artifact-load path; the caller zeroes the mask arrays first).
+    fn view_bag_rebuild_include_bits(&mut self) -> Result<(), GranmoModelError> {
+        let literals_total = self.states.len();
+        for local_literal in 0..literals_total {
+            let state = *self
+                .states
+                .get(local_literal)
+                .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+            if state > self.depth_n {
+                self.view_bag_set_include_bit(local_literal, true)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Type Ia: flat semantics — true literals reinforce, false literals
+    /// decay. Draw ORDER unchanged from the pre-parallel implementation.
+    fn view_bag_apply_type_ia(
+        &mut self,
+        presence_bits: &[u64],
+        rng: &mut FastRng,
+    ) -> Result<(), GranmoModelError> {
+        let reinforce_coin = self.reinforce_threshold;
+        let forget_coin = self.forget_threshold;
+        let feature_count = self.feature_count;
+        for rank in 0..feature_count {
+            let shingle_present = ByteBagTM::bag_presence_bit(presence_bits, rank)?;
+            let positive_local = rank;
+            let negated_local = feature_count + rank;
+            if shingle_present {
+                if rng.coin(reinforce_coin) {
+                    self.view_bag_increment(positive_local)?;
+                }
+                if rng.coin(forget_coin) {
+                    self.view_bag_decrement(negated_local)?;
+                }
+            } else {
+                if rng.coin(forget_coin) {
+                    self.view_bag_decrement(positive_local)?;
+                }
+                if rng.coin(reinforce_coin) {
+                    self.view_bag_increment(negated_local)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Type Ib: input-independent uniform decay over all 2M literals.
+    fn view_bag_apply_type_ib(&mut self, rng: &mut FastRng) -> Result<(), GranmoModelError> {
+        let forget_coin = self.forget_threshold;
+        let literals_total = self.states.len();
+        for local_literal in 0..literals_total {
+            if rng.coin(forget_coin) {
+                self.view_bag_decrement(local_literal)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Type II: deterministically increment every FALSE literal.
+    fn view_bag_apply_type_ii(&mut self, presence_bits: &[u64]) -> Result<(), GranmoModelError> {
+        let feature_count = self.feature_count;
+        for rank in 0..feature_count {
+            let shingle_present = ByteBagTM::bag_presence_bit(presence_bits, rank)?;
+            if shingle_present {
+                // Negated literal (M + rank) is false here.
+                self.view_bag_increment(feature_count + rank)?;
+            } else {
+                // Positive literal (rank) is false here.
+                self.view_bag_increment(rank)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// One ByteBag clause's P4-tier properties, snapshotted through the
+/// per-clause accessors BEFORE mutable borrows are taken. Same M-Hetero
+/// seam as `ConvClauseProperties`; no guard field, because GuardedInclude
+/// does not apply to a bag (recorded S2-7 control).
+#[derive(Debug, Clone, Copy)]
+struct BagClauseProperties {
+    depth_n: i16,
+    forget_threshold: u16,
+    reinforce_threshold: u16,
+}
+
+/// Pass 2 body for a contiguous range of ByteBag clause views. Used by
+/// BOTH the single-threaded path and each worker thread, so the two
+/// cannot diverge.
+fn bag_apply_feedback_to_view_range(
+    views: &mut [BagClauseWorkView<'_>],
+    fired_flags: &[bool],
+    presence_bits: &[u64],
+    step_seed: u64,
+    gates: FeedbackGates,
+    label_is_positive: bool,
+) -> Result<(), GranmoModelError> {
+    for view in views.iter_mut() {
+        let clause = view.view_bag_clause_index();
+        let fired = *fired_flags
+            .get(clause)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+        let positive_polarity = clause % 2 == 0;
+
+        let (gate, receives_type_i) = if label_is_positive {
+            (gates.gate_when_target, positive_polarity)
+        } else {
+            (gates.gate_when_other, !positive_polarity)
+        };
+
+        let mut clause_rng = FastRng::seed(derive_clause_stream_seed(
+            step_seed,
+            clause as u64,
+            RNG_PURPOSE_CLAUSE_FEEDBACK,
+        ));
+        let draw = clause_rng.gen_index(gates.two_t)? as i32;
+        if draw >= gate {
+            continue; // gated out this step
+        }
+
+        if receives_type_i {
+            if fired {
+                view.view_bag_apply_type_ia(presence_bits, &mut clause_rng)?;
+            } else {
+                view.view_bag_apply_type_ib(&mut clause_rng)?;
+            }
+        } else if fired {
+            view.view_bag_apply_type_ii(presence_bits)?;
+        }
+    }
+    Ok(())
+}
+
 impl ByteBagTM {
     /// Constructs a fresh engine around an already-built vocabulary.
     ///
@@ -5051,227 +6582,163 @@ impl ByteBagTM {
     }
 
     // --- Mask maintenance -------------------------------------------------------
-
-    /// Sets or clears the include-mask bit for one literal. Called ONLY
-    /// from the two transition methods on boundary crossings — the exact
-    /// analogue of the conv engine's mask recompute discipline, except a
-    /// bag crossing maps to a single bit, so set/clear is exact.
-    fn bag_set_include_bit(
+    /// Builds an exclusive mutable view of ONE clause (sequential paths:
+    /// artifact-load mask rebuild, test helpers).
+    fn _test_bag_build_clause_view(
         &mut self,
         clause: usize,
-        local_literal: usize,
-        included: bool,
-    ) -> Result<(), GranmoModelError> {
-        let feature_count = self.bag_feature_count();
-        let (range_start, _range_end) = self.bag_mask_word_range(clause)?;
-        let (rank, is_positive_literal) = if local_literal < feature_count {
-            (local_literal, true)
-        } else {
-            (local_literal - feature_count, false)
-        };
-        if rank >= feature_count {
+    ) -> Result<BagClauseWorkView<'_>, GranmoModelError> {
+        if clause >= self.bag_clause_total {
             return Err(GranmoModelError::BbgEngineIndexOutOfRange);
         }
-        let word_index = range_start
-            .checked_add(rank >> 6)
-            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
-        let target_masks = if is_positive_literal {
-            &mut self.bag_positive_include_masks
-        } else {
-            &mut self.bag_negated_include_masks
+        let properties = BagClauseProperties {
+            depth_n: self.bag_depth_for_clause(clause),
+            forget_threshold: self.bag_forget_threshold_for_clause(clause),
+            reinforce_threshold: self.bag_reinforce_threshold_for_clause(clause),
         };
-        let word = target_masks
-            .get_mut(word_index)
-            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
-        if included {
-            *word |= 1u64 << (rank & 63);
-        } else {
-            *word &= !(1u64 << (rank & 63));
-        }
-        Ok(())
-    }
-
-    // --- Automaton transitions (ALL state changes route through these) -----------
-
-    /// Increments one automaton state (saturating at 2N), setting the
-    /// include-mask bit on an exclude→include boundary crossing.
-    fn bag_increment_automaton(
-        &mut self,
-        clause: usize,
-        local_literal: usize,
-    ) -> Result<(), GranmoModelError> {
-        let clause_depth = self.bag_depth_for_clause(clause);
-        let saturation_ceiling = clause_depth
-            .checked_mul(2)
-            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
-        let state_index = self.bag_state_index(clause, local_literal)?;
-        let current_state = *self
-            .bag_ta_states
-            .get(state_index)
-            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
-
-        if current_state >= saturation_ceiling {
-            return Ok(()); // saturated deep-include; no change
-        }
-
-        let updated_state = current_state
-            .checked_add(1)
-            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
-        *self
-            .bag_ta_states
-            .get_mut(state_index)
-            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)? = updated_state;
-
-        // Crossing exclude→include: the OLD state was exactly N.
-        if current_state == clause_depth {
-            self.bag_set_include_bit(clause, local_literal, true)?;
-        }
-        Ok(())
-    }
-
-    /// Decrements one automaton state (floor at 1), clearing the
-    /// include-mask bit on an include→exclude boundary crossing.
-    fn bag_decrement_automaton(
-        &mut self,
-        clause: usize,
-        local_literal: usize,
-    ) -> Result<(), GranmoModelError> {
-        let clause_depth = self.bag_depth_for_clause(clause);
-        let boundary_plus_one = clause_depth
-            .checked_add(1)
-            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
-        let state_index = self.bag_state_index(clause, local_literal)?;
-        let current_state = *self
-            .bag_ta_states
-            .get(state_index)
-            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
-
-        if current_state <= 1 {
-            return Ok(()); // floor; no change
-        }
-
-        let updated_state = current_state
-            .checked_sub(1)
-            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
-        *self
-            .bag_ta_states
-            .get_mut(state_index)
-            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)? = updated_state;
-
-        // Crossing include→exclude: the OLD state was exactly N+1.
-        if current_state == boundary_plus_one {
-            self.bag_set_include_bit(clause, local_literal, false)?;
-        }
-        Ok(())
-    }
-
-    // --- Feedback (Phase-1 FLAT semantics; no window sampling) --------------------
-
-    /// Type Ia: clause fired and should have. For every literal: true
-    /// literals reinforce at the reinforce coin, false literals decay at
-    /// the forget coin. A shingle's presence makes its positive literal
-    /// true and its negated twin false, and vice versa. Cost O(2M).
-    fn bag_apply_type_ia_feedback(
-        &mut self,
-        clause: usize,
-        presence_bits: &[u64],
-        rng: &mut FastRng,
-    ) -> Result<(), GranmoModelError> {
-        let reinforce_coin = self.bag_reinforce_threshold_for_clause(clause);
-        let forget_coin = self.bag_forget_threshold_for_clause(clause);
         let feature_count = self.bag_feature_count();
-        for rank in 0..feature_count {
-            let shingle_present = Self::bag_presence_bit(presence_bits, rank)?;
-            // Negated twin at M + rank (M <= 65000: sum safe in usize).
-            let positive_local = rank;
-            let negated_local = feature_count + rank;
+        let literals_per_clause = self.bag_literals_per_clause();
+        let mask_words_per_clause = self.bag_mask_words_per_clause();
 
-            if shingle_present {
-                // Positive literal TRUE, negated literal FALSE.
-                if rng.coin(reinforce_coin) {
-                    self.bag_increment_automaton(clause, positive_local)?;
-                }
-                if rng.coin(forget_coin) {
-                    self.bag_decrement_automaton(clause, negated_local)?;
-                }
-            } else {
-                // Positive literal FALSE, negated literal TRUE.
-                if rng.coin(forget_coin) {
-                    self.bag_decrement_automaton(clause, positive_local)?;
-                }
-                if rng.coin(reinforce_coin) {
-                    self.bag_increment_automaton(clause, negated_local)?;
-                }
-            }
-        }
-        Ok(())
+        let state_start = clause
+            .checked_mul(literals_per_clause)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+        let state_end = state_start
+            .checked_add(literals_per_clause)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+        let mask_start = clause
+            .checked_mul(mask_words_per_clause)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+        let mask_end = mask_start
+            .checked_add(mask_words_per_clause)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+
+        Ok(BagClauseWorkView {
+            clause_index: clause,
+            feature_count,
+            depth_n: properties.depth_n,
+            forget_threshold: properties.forget_threshold,
+            reinforce_threshold: properties.reinforce_threshold,
+            states: self
+                .bag_ta_states
+                .get_mut(state_start..state_end)
+                .ok_or(GranmoModelError::ParClauseViewGeometryFault)?,
+            positive_mask_words: self
+                .bag_positive_include_masks
+                .get_mut(mask_start..mask_end)
+                .ok_or(GranmoModelError::ParClauseViewGeometryFault)?,
+            negated_mask_words: self
+                .bag_negated_include_masks
+                .get_mut(mask_start..mask_end)
+                .ok_or(GranmoModelError::ParClauseViewGeometryFault)?,
+        })
     }
 
-    /// Type Ib: clause should have fired but did not — input-independent
-    /// uniform decay with P ≈ 1/s over ALL literals (identical semantics to
-    /// the conv engine's Type Ib; §3 established fact 3).
-    fn bag_apply_type_ib_feedback(
+    /// Builds exclusive mutable views of EVERY clause at once, by zipping
+    /// `chunks_mut` over the three storage vectors — the same disjointness
+    /// proof as the conv engine's builder, which is what permits handing
+    /// contiguous view ranges to different threads without `unsafe`.
+    fn bag_build_all_clause_views(
         &mut self,
-        clause: usize,
-        rng: &mut FastRng,
-    ) -> Result<(), GranmoModelError> {
-        let forget_coin = self.bag_forget_threshold_for_clause(clause);
-        for local_literal in 0..self.bag_literals_per_clause() {
-            if rng.coin(forget_coin) {
-                self.bag_decrement_automaton(clause, local_literal)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Type II: clause fired but should not have — deterministically
-    /// increment every FALSE literal toward inclusion, so the clause
-    /// acquires a blocking literal. False literals: the positive literal
-    /// of every ABSENT shingle, and the negated literal of every PRESENT
-    /// shingle. No randomness in Type II (same as the conv engine).
-    fn bag_apply_type_ii_feedback(
-        &mut self,
-        clause: usize,
-        presence_bits: &[u64],
-    ) -> Result<(), GranmoModelError> {
+    ) -> Result<Vec<BagClauseWorkView<'_>>, GranmoModelError> {
+        let clause_total = self.bag_clause_total;
         let feature_count = self.bag_feature_count();
-        for rank in 0..feature_count {
-            let shingle_present = Self::bag_presence_bit(presence_bits, rank)?;
-            if shingle_present {
-                // Negated literal (M + rank) is false here.
-                self.bag_increment_automaton(clause, feature_count + rank)?;
-            } else {
-                // Positive literal (rank) is false here.
-                self.bag_increment_automaton(clause, rank)?;
-            }
-        }
-        Ok(())
-    }
+        let literals_per_clause = self.bag_literals_per_clause();
+        let mask_words_per_clause = self.bag_mask_words_per_clause();
 
+        // Snapshot P4 properties through the accessors BEFORE the mutable
+        // borrows below (the accessors need `&self`).
+        let mut clause_properties: Vec<BagClauseProperties> = Vec::with_capacity(clause_total);
+        for clause in 0..clause_total {
+            clause_properties.push(BagClauseProperties {
+                depth_n: self.bag_depth_for_clause(clause),
+                forget_threshold: self.bag_forget_threshold_for_clause(clause),
+                reinforce_threshold: self.bag_reinforce_threshold_for_clause(clause),
+            });
+        }
+
+        let mut views: Vec<BagClauseWorkView<'_>> = Vec::with_capacity(clause_total);
+        let state_chunks = self.bag_ta_states.chunks_mut(literals_per_clause);
+        let positive_chunks = self
+            .bag_positive_include_masks
+            .chunks_mut(mask_words_per_clause);
+        let negated_chunks = self
+            .bag_negated_include_masks
+            .chunks_mut(mask_words_per_clause);
+
+        for (clause_index, ((state_chunk, positive_chunk), negated_chunk)) in state_chunks
+            .zip(positive_chunks)
+            .zip(negated_chunks)
+            .enumerate()
+        {
+            let properties = *clause_properties
+                .get(clause_index)
+                .ok_or(GranmoModelError::ParClauseViewGeometryFault)?;
+            if state_chunk.len() != literals_per_clause
+                || positive_chunk.len() != mask_words_per_clause
+                || negated_chunk.len() != mask_words_per_clause
+            {
+                return Err(GranmoModelError::ParClauseViewGeometryFault);
+            }
+            views.push(BagClauseWorkView {
+                clause_index,
+                feature_count,
+                depth_n: properties.depth_n,
+                forget_threshold: properties.forget_threshold,
+                reinforce_threshold: properties.reinforce_threshold,
+                states: state_chunk,
+                positive_mask_words: positive_chunk,
+                negated_mask_words: negated_chunk,
+            });
+        }
+        if views.len() != clause_total {
+            return Err(GranmoModelError::ParClauseViewGeometryFault);
+        }
+        Ok(views)
+    }
     // --- Training -------------------------------------------------------------------
-
-    /// One stochastic training update for one document, flat semantics.
-    ///
-    /// Features are extracted ONCE (locked decision). Pass 1 (immutable)
-    /// evaluates every clause and accumulates the vote BEFORE any state
-    /// mutation — the same pre-update-attribution discipline as the conv
-    /// engine. The (T∓V)/2T gate comes from the SHARED
-    /// `resolve_feedback_gates` helper (Section 5C), so both engines train
-    /// with byte-identical gate mechanics. The per-step allocations
-    /// (presence bitset, fired-flag Vec) are documented harness-tier heap
-    /// use, mirroring the conv engine's documented scratch Vec.
+    /// One stochastic training update for one document, single-threaded.
+    /// Byte-identical to `bag_train_step_with_workers(..., WorkerCount 1)`
+    /// and, by the per-clause RNG contract, to ANY worker count.
     pub fn bag_train_step(
         &mut self,
         document: &[u8],
         label_is_positive: bool,
         rng: &mut FastRng,
     ) -> Result<(), GranmoModelError> {
-        let presence_bits = self.bag_document_presence_bits(document)?;
+        self.bag_train_step_with_workers(document, label_is_positive, rng, WorkerCount::new(1)?)
+    }
 
-        // Pass 1 (immutable): fired flags + vote sum.
-        let mut fired_flags: Vec<bool> = Vec::with_capacity(self.bag_clause_total);
+    /// One stochastic training update for one document, fork-join over the
+    /// clause bank — flat semantics, no window sampling.
+    ///
+    /// ## Asymmetry with the conv engine (deliberate, recorded)
+    /// Pass 1 is left SEQUENTIAL here. Bag clause evaluation is a
+    /// word-parallel mask test costing ceil(M/64) word operations per
+    /// clause (~63 at M=4000) against pass 2's O(2M) = 8000 literal visits
+    /// per gated clause — two orders of magnitude apart. Spawning threads
+    /// for pass 1 would cost more than it saves. This is a scheduling
+    /// choice only: it has no effect on results, and the §8 timing
+    /// comparison remains honest because each engine is parallelized where
+    /// its own cost actually is.
+    pub fn bag_train_step_with_workers(
+        &mut self,
+        document: &[u8],
+        label_is_positive: bool,
+        rng: &mut FastRng,
+        worker_count: WorkerCount,
+    ) -> Result<(), GranmoModelError> {
+        let presence_bits = self.bag_document_presence_bits(document)?;
+        let clause_total = self.bag_clause_total;
+        // EXACTLY one master draw per step, at every worker count.
+        let step_seed = rng.next_u64();
+        let worker_total = resolve_effective_worker_count(worker_count, clause_total)?;
+        let chunk_size = resolve_work_chunk_size(clause_total, worker_total)?;
+
+        // --- Pass 1 (sequential, immutable): fired flags + vote sum ---
+        let mut fired_flags: Vec<bool> = Vec::with_capacity(clause_total);
         let mut vote: i32 = 0;
-        for clause in 0..self.bag_clause_total {
+        for clause in 0..clause_total {
             let fired = self.bag_clause_fires(clause, &presence_bits)?;
             if fired {
                 vote = if clause % 2 == 0 {
@@ -5284,42 +6751,54 @@ impl ByteBagTM {
             fired_flags.push(fired);
         }
 
-        // Integer feedback gates (shared helper, Section 5C).
         let gates = resolve_feedback_gates(vote, self.bag_vote_target)?;
 
-        // Pass 2 (mutable): per-clause gated feedback, flat semantics —
-        // no window sampling exists for a bag.
-        for clause in 0..self.bag_clause_total {
-            let fired = *fired_flags
-                .get(clause)
-                .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
-            let positive_polarity = clause % 2 == 0;
+        // --- Pass 2 (mutating, disjoint clause views) ---
+        let mut clause_views = self.bag_build_all_clause_views()?;
 
-            // Which feedback family, and which gate, this clause receives.
-            let (gate, receives_type_i) = if label_is_positive {
-                (gates.gate_when_target, positive_polarity)
-            } else {
-                (gates.gate_when_other, !positive_polarity)
-            };
-
-            let draw = rng.gen_index(gates.two_t)? as i32;
-            if draw >= gate {
-                continue; // gated out this step
-            }
-
-            if receives_type_i {
-                if fired {
-                    self.bag_apply_type_ia_feedback(clause, &presence_bits, rng)?;
-                } else {
-                    self.bag_apply_type_ib_feedback(clause, rng)?;
-                }
-            } else if fired {
-                self.bag_apply_type_ii_feedback(clause, &presence_bits)?;
+        if worker_total == 1 {
+            bag_apply_feedback_to_view_range(
+                &mut clause_views,
+                &fired_flags,
+                &presence_bits,
+                step_seed,
+                gates,
+                label_is_positive,
+            )?;
+        } else {
+            let fired_shared: &[bool] = &fired_flags;
+            let presence_shared: &[u64] = &presence_bits;
+            let feedback_results: Vec<Result<(), GranmoModelError>> =
+                std::thread::scope(|feedback_scope| {
+                    let mut worker_handles = Vec::with_capacity(worker_total);
+                    for view_chunk in clause_views.chunks_mut(chunk_size) {
+                        worker_handles.push(feedback_scope.spawn(move || {
+                            bag_apply_feedback_to_view_range(
+                                view_chunk,
+                                fired_shared,
+                                presence_shared,
+                                step_seed,
+                                gates,
+                                label_is_positive,
+                            )
+                        }));
+                    }
+                    worker_handles
+                        .into_iter()
+                        .map(|handle| match handle.join() {
+                            Ok(worker_result) => worker_result,
+                            // join() errs only on a worker panic. Production
+                            // code never panics: report, never re-raise.
+                            Err(_panic_payload) => Err(GranmoModelError::ParWorkerJoinFailed),
+                        })
+                        .collect()
+                });
+            for worker_result in feedback_results {
+                worker_result?;
             }
         }
         Ok(())
     }
-
     // --- Invariant validation ----------------------------------------------------
 
     /// Re-derives BOTH include masks for every clause from raw automaton
@@ -5414,17 +6893,15 @@ impl ByteBagTM {
     }
 
     /// Test-only helper: forces a literal fully into the include region via
-    /// the mask-maintaining transition path, so tests can hand-construct
-    /// exact clauses without breaking the mask invariants. Terminates when
-    /// the state stops changing (saturated at 2N). Mirrors the conv
-    /// engine's `test_force_include`, with a unique name per project rule.
+    /// the mask-maintaining view transition path. Terminates when the state
+    /// stops changing (saturated at 2N).
     #[cfg(test)]
     fn bag_test_force_include(&mut self, clause: usize, local_literal: usize) {
         loop {
-            let state_index = self.bag_state_index(clause, local_literal).unwrap();
-            let before = self.bag_ta_states[state_index];
-            self.bag_increment_automaton(clause, local_literal).unwrap();
-            let after = self.bag_ta_states[state_index];
+            let mut clause_view = self._test_bag_build_clause_view(clause).unwrap();
+            let before = clause_view.states[local_literal];
+            clause_view.view_bag_increment(local_literal).unwrap();
+            let after = clause_view.states[local_literal];
             if after == before {
                 break;
             }
@@ -5522,11 +6999,11 @@ mod tests {
         let engine = make_engine(5, 2, 8, false);
         // Fresh clauses include no literals => all-permissive masks => every
         // clause fires; balanced polarity => V = 0; consistency must hold.
-        assert_eq!(engine.vote_sum(b"any text at all").unwrap(), 0);
-        assert!(!engine.predict(b"any text at all", 0).unwrap());
-        engine.validate_internal_consistency().unwrap();
+        assert_eq!(engine.conv_vote_sum(b"any text at all").unwrap(), 0);
+        assert!(!engine.conv_predict(b"any text at all", 0).unwrap());
+        engine.conv_validate_internal_consistency().unwrap();
         // Embedding bitset: all 8 clause bits set on a fresh model.
-        let bits = engine.fired_clause_bits(b"x").unwrap();
+        let bits = engine.conv_fired_clause_bits(b"x").unwrap();
         assert_eq!(bits, vec![0b1111_1111u64]);
     }
 
@@ -5536,14 +7013,20 @@ mod tests {
     fn positive_include_restricts_slot_and_reports_positions() {
         let mut engine = make_engine(2, 1, 2, false);
         // Clause 0: require byte 'a' at slot 0 and 'b' at slot 1.
-        engine.test_force_include(0, engine.positive_local_index(0, usize::from(b'a')));
-        engine.test_force_include(0, engine.positive_local_index(1, usize::from(b'b')));
-        engine.validate_internal_consistency().unwrap();
+        engine.conv_test_force_include(0, engine.positive_local_index(0, usize::from(b'a')));
+        engine.conv_test_force_include(0, engine.positive_local_index(1, usize::from(b'b')));
+        engine.conv_validate_internal_consistency().unwrap();
 
         // "zab": windows at 0 ("za") and 1 ("ab") => fires only at offset 1.
-        assert_eq!(engine.fired_window_positions(0, b"zab").unwrap(), vec![1]);
+        assert_eq!(
+            engine.conv_fired_window_positions(0, b"zab").unwrap(),
+            vec![1]
+        );
         // Order sensitivity: same bytes reversed must NOT fire.
-        assert!(engine.fired_window_positions(0, b"zba").unwrap().is_empty());
+        assert!(engine
+            .conv_fired_window_positions(0, b"zba")
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -5551,28 +7034,37 @@ mod tests {
         // Documents the known cost of S=2 recorded in the plan: patterns at
         // odd offsets are only visible at odd window starts.
         let mut s2 = make_engine(2, 2, 2, false);
-        s2.test_force_include(0, s2.positive_local_index(0, usize::from(b'a')));
-        s2.test_force_include(0, s2.positive_local_index(1, usize::from(b'b')));
-        assert!(s2.fired_window_positions(0, b"zab").unwrap().is_empty());
+        s2.conv_test_force_include(0, s2.positive_local_index(0, usize::from(b'a')));
+        s2.conv_test_force_include(0, s2.positive_local_index(1, usize::from(b'b')));
+        assert!(s2
+            .conv_fired_window_positions(0, b"zab")
+            .unwrap()
+            .is_empty());
 
         let mut s1 = make_engine(2, 1, 2, false);
-        s1.test_force_include(0, s1.positive_local_index(0, usize::from(b'a')));
-        s1.test_force_include(0, s1.positive_local_index(1, usize::from(b'b')));
-        assert_eq!(s1.fired_window_positions(0, b"zab").unwrap(), vec![1]);
+        s1.conv_test_force_include(0, s1.positive_local_index(0, usize::from(b'a')));
+        s1.conv_test_force_include(0, s1.positive_local_index(1, usize::from(b'b')));
+        assert_eq!(s1.conv_fired_window_positions(0, b"zab").unwrap(), vec![1]);
     }
 
     #[test]
     fn short_document_right_pads_with_zero() {
         let mut engine = make_engine(5, 1, 4, false);
         // Clause 0: requires PAD (0x00) at slot 4 — satisfied by a short doc.
-        engine.test_force_include(0, engine.positive_local_index(4, 0));
+        engine.conv_test_force_include(0, engine.positive_local_index(4, 0));
         // Clause 2: forbids PAD at slot 2 (negated 0x00) — blocked by padding.
-        engine.test_force_include(2, engine.negated_local_index(2, 0));
-        engine.validate_internal_consistency().unwrap();
+        engine.conv_test_force_include(2, engine.negated_local_index(2, 0));
+        engine.conv_validate_internal_consistency().unwrap();
 
         // "hi" (2 bytes < K=5) => exactly one window: ['h','i',0,0,0].
-        assert_eq!(engine.fired_window_positions(0, b"hi").unwrap(), vec![0]);
-        assert!(engine.fired_window_positions(2, b"hi").unwrap().is_empty());
+        assert_eq!(
+            engine.conv_fired_window_positions(0, b"hi").unwrap(),
+            vec![0]
+        );
+        assert!(engine
+            .conv_fired_window_positions(2, b"hi")
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -5580,29 +7072,28 @@ mod tests {
         // Guard ON: second positive include at the same slot is refused;
         // the mask stays single-byte, the clause stays alive.
         let mut guarded = make_engine(2, 1, 2, true);
-        guarded.test_force_include(0, guarded.positive_local_index(0, usize::from(b'a')));
-        guarded.test_force_include(0, guarded.positive_local_index(0, usize::from(b'b')));
-        guarded.validate_internal_consistency().unwrap();
-        assert_eq!(guarded.fired_window_positions(0, b"ax").unwrap(), vec![0]);
+        guarded.conv_test_force_include(0, guarded.positive_local_index(0, usize::from(b'a')));
+        guarded.conv_test_force_include(0, guarded.positive_local_index(0, usize::from(b'b')));
+        guarded.conv_validate_internal_consistency().unwrap();
+        assert_eq!(
+            guarded.conv_fired_window_positions(0, b"ax").unwrap(),
+            vec![0]
+        );
 
         // Guard OFF: both includes land; the slot mask is empty; the clause
         // is structurally dead (the defect the guard exists to prevent).
         let mut unguarded = make_engine(2, 1, 2, false);
-        unguarded.test_force_include(0, unguarded.positive_local_index(0, usize::from(b'a')));
-        unguarded.test_force_include(0, unguarded.positive_local_index(0, usize::from(b'b')));
-        unguarded.validate_internal_consistency().unwrap();
-        assert!(
-            unguarded
-                .fired_window_positions(0, b"ax")
-                .unwrap()
-                .is_empty()
-        );
-        assert!(
-            unguarded
-                .fired_window_positions(0, b"bx")
-                .unwrap()
-                .is_empty()
-        );
+        unguarded.conv_test_force_include(0, unguarded.positive_local_index(0, usize::from(b'a')));
+        unguarded.conv_test_force_include(0, unguarded.positive_local_index(0, usize::from(b'b')));
+        unguarded.conv_validate_internal_consistency().unwrap();
+        assert!(unguarded
+            .conv_fired_window_positions(0, b"ax")
+            .unwrap()
+            .is_empty());
+        assert!(unguarded
+            .conv_fired_window_positions(0, b"bx")
+            .unwrap()
+            .is_empty());
     }
 
     // --- ByteConvTM: training invariants and learning ---
@@ -5620,10 +7111,10 @@ mod tests {
         ];
         for _ in 0..50 {
             for (doc, label) in docs {
-                engine.train_step(doc, label, &mut rng).unwrap();
+                engine.conv_train_step(doc, label, &mut rng).unwrap();
             }
         }
-        engine.validate_internal_consistency().unwrap();
+        engine.conv_validate_internal_consistency().unwrap();
     }
 
     #[test]
@@ -5648,24 +7139,24 @@ mod tests {
         let mut rng = FastRng::seed(42);
         for _ in 0..300 {
             for doc in positives {
-                engine.train_step(doc, true, &mut rng).unwrap();
+                engine.conv_train_step(doc, true, &mut rng).unwrap();
             }
             for doc in negatives {
-                engine.train_step(doc, false, &mut rng).unwrap();
+                engine.conv_train_step(doc, false, &mut rng).unwrap();
             }
         }
-        engine.validate_internal_consistency().unwrap();
+        engine.conv_validate_internal_consistency().unwrap();
 
         for doc in positives {
             assert!(
-                engine.predict(doc, 0).unwrap(),
+                engine.conv_predict(doc, 0).unwrap(),
                 "positive doc misclassified: {:?}",
                 core::str::from_utf8(doc)
             );
         }
         for doc in negatives {
             assert!(
-                !engine.predict(doc, 0).unwrap(),
+                !engine.conv_predict(doc, 0).unwrap(),
                 "negative doc misclassified: {:?}",
                 core::str::from_utf8(doc)
             );
@@ -5683,9 +7174,9 @@ mod tests {
     #[test]
     fn describe_clause_decodes_forced_pattern() {
         let mut engine = make_engine(2, 1, 2, false);
-        engine.test_force_include(0, engine.positive_local_index(0, usize::from(b'n')));
-        engine.test_force_include(0, engine.negated_local_index(1, 0)); // k1 ≠ 0x00
-        let description = engine.describe_clause(0, 12).unwrap();
+        engine.conv_test_force_include(0, engine.positive_local_index(0, usize::from(b'n')));
+        engine.conv_test_force_include(0, engine.negated_local_index(1, 0)); // k1 ≠ 0x00
+        let description = engine.conv_describe_clause(0, 12).unwrap();
         assert!(description.contains("k0='n'"), "got: {description}");
         assert!(description.contains("k1≠0x00"), "got: {description}");
     }
@@ -6009,7 +7500,7 @@ mod tests {
         ];
         for _ in 0..50 {
             for (doc, label) in training_docs {
-                conv_engine.train_step(doc, label, &mut rng).unwrap();
+                conv_engine.conv_train_step(doc, label, &mut rng).unwrap();
             }
         }
 
@@ -6025,7 +7516,10 @@ mod tests {
             loaded.preprocess_profile.get_bits().unwrap(),
             PreprocessProfile::preset_p2().get_bits().unwrap()
         );
-        loaded.engine.validate_internal_consistency().unwrap();
+        loaded
+            .engine
+            .engine_validate_internal_consistency()
+            .unwrap();
 
         let probe_docs: [&[u8]; 5] = [
             b"very good movie",
@@ -6036,8 +7530,8 @@ mod tests {
         ];
         for doc in probe_docs {
             assert_eq!(
-                artifact.engine.vote_sum(doc).unwrap(),
-                loaded.engine.vote_sum(doc).unwrap(),
+                artifact.engine.engine_vote_sum(doc).unwrap(),
+                loaded.engine.engine_vote_sum(doc).unwrap(),
                 "vote divergence after round-trip on {:?}",
                 core::str::from_utf8(doc)
             );
@@ -6186,9 +7680,10 @@ mod tests {
             guarded_include: false,
             epochs: 400,
             seed: 42,
+            worker_count: 2,
         };
         let (engine, report) = run_single_experiment(&documents, &documents, &config).unwrap();
-        engine.validate_internal_consistency().unwrap();
+        engine.engine_validate_internal_consistency().unwrap();
         assert_eq!(report.engine_name_reported, "byte-conv");
         assert_eq!(report.test_count, 8);
         assert_eq!(report.clause_fire_counts.len(), 32);
@@ -6461,7 +7956,7 @@ mod tests {
         assert_eq!(vocab.lookup(b"ba").unwrap(), Some(1));
         assert_eq!(vocab.lookup(b"aa").unwrap(), None); // truncated out
         assert_eq!(vocab.lookup(b"zz").unwrap(), None); // never seen
-        // Wrong-length shingle is a wiring error, not a miss.
+                                                        // Wrong-length shingle is a wiring error, not a miss.
         assert_eq!(
             vocab.lookup(b"abc").err(),
             Some(GranmoModelError::BbgVocabIndexOutOfRange)
@@ -6602,10 +8097,10 @@ mod tests {
             wrapped.artifact_kind(),
             ARTIFACT_KIND_BYTECONV_FULL_TRAINING
         );
-        assert_eq!(wrapped.clause_count(), 8);
+        assert_eq!(wrapped.engine_clause_count(), 8);
         // Fresh model: all clauses fire, balanced polarity => V = 0.
-        assert_eq!(wrapped.vote_sum(b"any text").unwrap(), 0);
-        wrapped.validate_internal_consistency().unwrap();
+        assert_eq!(wrapped.engine_vote_sum(b"any text").unwrap(), 0);
+        wrapped.engine_validate_internal_consistency().unwrap();
     }
 
     // --- ByteBagTM engine (Drop 2.2b) ---
@@ -6821,11 +8316,11 @@ mod tests {
             wrapped_bag.artifact_kind(),
             ARTIFACT_KIND_BYTEBAG_FULL_TRAINING
         );
-        assert_eq!(wrapped_bag.clause_count(), 8);
+        assert_eq!(wrapped_bag.engine_clause_count(), 8);
         // Fresh bag: all clauses fire, balanced polarity => V = 0.
-        assert_eq!(wrapped_bag.vote_sum(b"any text").unwrap(), 0);
-        wrapped_bag.validate_internal_consistency().unwrap();
-        let lut_for_bag = wrapped_bag.build_probability_lut().unwrap();
+        assert_eq!(wrapped_bag.engine_vote_sum(b"any text").unwrap(), 0);
+        wrapped_bag.engine_validate_internal_consistency().unwrap();
+        let lut_for_bag = wrapped_bag.engine_build_probability_lut().unwrap();
         lut_for_bag.lut_validity_recheck().unwrap();
     }
 
@@ -6861,7 +8356,10 @@ mod tests {
             loaded.preprocess_profile.get_bits().unwrap(),
             PreprocessProfile::preset_p0().get_bits().unwrap()
         );
-        loaded.engine.validate_internal_consistency().unwrap();
+        loaded
+            .engine
+            .engine_validate_internal_consistency()
+            .unwrap();
 
         let probe_docs: [&[u8]; 5] = [
             b"very good movie",
@@ -6872,8 +8370,8 @@ mod tests {
         ];
         for doc in probe_docs {
             assert_eq!(
-                artifact.engine.vote_sum(doc).unwrap(),
-                loaded.engine.vote_sum(doc).unwrap(),
+                artifact.engine.engine_vote_sum(doc).unwrap(),
+                loaded.engine.engine_vote_sum(doc).unwrap(),
                 "bag vote divergence after round-trip on {:?}",
                 core::str::from_utf8(doc)
             );
@@ -6929,6 +8427,7 @@ mod tests {
             guarded_include: false, // ignored by bag
             epochs: 1,
             seed: 42,
+            worker_count: 2,
         };
         let (trained_engine, report) =
             run_single_experiment(&train_documents, &test_documents, &config).unwrap();
@@ -6978,10 +8477,13 @@ mod tests {
             guarded_include: false, // ignored by bag
             epochs: 400,
             seed: 42,
+            worker_count: 2,
         };
         let (trained_engine, report) =
             run_single_experiment(&documents, &documents, &config).unwrap();
-        trained_engine.validate_internal_consistency().unwrap();
+        trained_engine
+            .engine_validate_internal_consistency()
+            .unwrap();
         assert_eq!(report.engine_name_reported, "byte-bag");
         assert_eq!(report.test_count, 8);
         assert_eq!(report.clause_fire_counts.len(), 32);
@@ -7038,5 +8540,252 @@ mod tests {
             cli(&["--engine", "nonsense"]).err(),
             Some(GranmoModelError::CliUnknownEngine)
         );
+    }
+
+    // --- Misprediction inspection log ---
+
+    /// `run_single_experiment` must populate `mispredictions` with exactly
+    /// the wrong-at-V>0 documents, carrying BOTH raw and preprocessed text.
+    /// Uses an untrained fresh model (epochs=0-equivalent via 1 epoch on a
+    /// single doc) where behavior is fully predictable: a fresh balanced
+    /// bank votes V=0 on everything, and V>0 is false, so every
+    /// positive-labeled test doc is a guaranteed misprediction.
+    #[test]
+    fn experiment_report_captures_mispredictions_with_both_text_forms() {
+        let train_docs = vec![LabeledDocument {
+            text: b"anything".to_vec(),
+            label_is_positive: false,
+        }];
+        let test_docs = vec![
+            LabeledDocument {
+                text: b"  POSITIVE Doc".to_vec(),
+                label_is_positive: true, // fresh model predicts 0 -> misprediction
+            },
+            LabeledDocument {
+                text: b"negative doc".to_vec(),
+                label_is_positive: false, // fresh model predicts 0 -> correct
+            },
+        ];
+        let config = HarnessRunConfig {
+            profile: PreprocessProfile::preset_p0(),
+            engine_selection: EngineSelection::ByteConv,
+            patch_size: 5,
+            stride: 2,
+            bag_ngram_len: 5,
+            bag_vocab_size: 100,
+            n_clauses: 4,
+            vote_threshold: 15,
+            states_per_action: 100,
+            specificity: 3.0,
+            max_scan_bytes: 256,
+            guarded_include: false,
+            epochs: 0, // no training: model stays fresh and vote stays 0
+            seed: 42,
+            worker_count: 2,
+        };
+        let (_engine, report) = run_single_experiment(&train_docs, &test_docs, &config).unwrap();
+        assert_eq!(report.mispredictions.len(), 1);
+        let record = &report.mispredictions[0];
+        assert_eq!(record.raw_text_bytes, b"  POSITIVE Doc".to_vec());
+        // P0 = fold + dedupe + trim + lowercase.
+        assert_eq!(record.preprocessed_text_bytes, b"positive doc".to_vec());
+        assert!(record.actual_label_is_positive);
+        assert!(!record.predicted_label_is_positive);
+        assert_eq!(record.vote_sum_at_prediction, 0);
+    }
+
+    /// Append helper contract: empty input is a no-op (no file created);
+    /// non-empty input appends; a second call PRESERVES the first call's
+    /// lines (append mode); text separators are sanitized; relative paths
+    /// are rejected with the dedicated code.
+    #[test]
+    fn misprediction_log_append_contract() {
+        let log_path = temp_artifact_path("granmo_mispred_log_test.txt");
+        let _ = std::fs::remove_file(&log_path); // clean slate; ignore absence
+        let data_path = std::path::PathBuf::from("/data/example.jsonl");
+
+        // Empty: no-op, no file.
+        append_mispredictions_to_log(&log_path, &data_path, "p0", "byte-conv", &[]).unwrap();
+        assert!(!log_path.exists());
+
+        // Relative path: rejected.
+        assert_eq!(
+            append_mispredictions_to_log(
+                std::path::Path::new("relative/log.txt"),
+                &data_path,
+                "p0",
+                "byte-conv",
+                &[MispredictionRecord {
+                    raw_text_bytes: b"x".to_vec(),
+                    preprocessed_text_bytes: b"x".to_vec(),
+                    actual_label_is_positive: true,
+                    predicted_label_is_positive: false,
+                    vote_sum_at_prediction: -1,
+                }],
+            )
+            .err(),
+            Some(GranmoModelError::CliLogPathNotAbsolute)
+        );
+
+        // Two appends accumulate; embedded newline/tab sanitized to spaces.
+        let record = MispredictionRecord {
+            raw_text_bytes: b"line one\nline\ttwo".to_vec(),
+            preprocessed_text_bytes: b"line one line two".to_vec(),
+            actual_label_is_positive: true,
+            predicted_label_is_positive: false,
+            vote_sum_at_prediction: -3,
+        };
+        append_mispredictions_to_log(&log_path, &data_path, "p0", "byte-conv", &[record.clone()])
+            .unwrap();
+        append_mispredictions_to_log(&log_path, &data_path, "p2", "byte-bag", &[record]).unwrap();
+
+        let contents = std::fs::read_to_string(&log_path).unwrap();
+        let lines: Vec<&str> = contents.lines().collect();
+        assert_eq!(lines.len(), 2, "append mode must preserve prior records");
+        assert!(lines[0].contains("run=p0") && lines[0].contains("engine=byte-conv"));
+        assert!(lines[1].contains("run=p2") && lines[1].contains("engine=byte-bag"));
+        assert!(lines[0].contains("raw_text=\"line one line two\""));
+        assert!(lines[0].contains("actual=1") && lines[0].contains("pred=0"));
+        assert!(lines[0].contains("vote=-3"));
+    }
+
+    /// CLI: `--log-out` parses into `log_out`; absent flag defaults None.
+    #[test]
+    fn cli_parses_log_out_flag() {
+        let parsed = cli(&["--mode", "train", "--log-out", "/tmp/mispred.txt"]).unwrap();
+        assert_eq!(
+            parsed.log_out,
+            Some(std::path::PathBuf::from("/tmp/mispred.txt"))
+        );
+        assert!(cli(&["--mode", "train"]).unwrap().log_out.is_none());
+    }
+
+    /*
+    Test Note:
+    the `epochs: 0` test relies on `run_single_experiment` accepting
+    zero epochs (the loop `for _epoch in 0..config.epochs`
+    doesn't execute — it does today). If you ever add a `epochs >= 1`
+    validation, switch that test to a hand-forced clause construction
+    via `conv_test_force_include` instead.
+    */
+
+    /// THE parallelization contract, executable: clause-parallel training
+    /// is a PERFORMANCE-ONLY transformation. One and many workers must
+    /// produce byte-identical automaton states after identical training.
+    #[test]
+    fn conv_training_is_worker_count_invariant() {
+        let training_docs: [(&[u8], bool); 5] = [
+            (b"very good movie", true),
+            (b"not good movie", false),
+            (b"hi", true),
+            (b"", false),
+            (b"aaaaaaaaaaaaaaaa", true),
+        ];
+        let run_training = |workers: u16| -> ByteConvTM {
+            let mut engine = make_engine(5, 1, 16, false);
+            let mut rng = FastRng::seed(123);
+            let worker_count = WorkerCount::new(workers).unwrap();
+            for _ in 0..20 {
+                for (doc, label) in training_docs {
+                    engine
+                        .conv_train_step_with_workers(doc, *&label, &mut rng, worker_count)
+                        .unwrap();
+                }
+            }
+            engine.conv_validate_internal_consistency().unwrap();
+            engine
+        };
+        let single = run_training(1);
+        let many = run_training(8);
+        assert_eq!(single.ta_states, many.ta_states, "states diverged");
+        assert_eq!(single.allowed_masks, many.allowed_masks, "masks diverged");
+        assert_eq!(
+            single.positive_include_counts, many.positive_include_counts,
+            "counts diverged"
+        );
+    }
+
+    /// Same contract for the ByteBag control engine.
+    #[test]
+    fn bag_training_is_worker_count_invariant() {
+        let corpus: &[&[u8]] = &[b"very good movie", b"not good movie", b"hi"];
+        let training_docs: [(&[u8], bool); 3] = [
+            (b"very good movie", true),
+            (b"not good movie", false),
+            (b"hi", true),
+        ];
+        let run_training = |workers: u16| -> ByteBagTM {
+            let mut engine = make_bag_engine(3, 100, corpus, 16);
+            let mut rng = FastRng::seed(123);
+            let worker_count = WorkerCount::new(workers).unwrap();
+            for _ in 0..20 {
+                for (doc, label) in training_docs {
+                    engine
+                        .bag_train_step_with_workers(doc, *&label, &mut rng, worker_count)
+                        .unwrap();
+                }
+            }
+            engine.bag_validate_internal_consistency().unwrap();
+            engine
+        };
+        let single = run_training(1);
+        let many = run_training(8);
+        assert_eq!(single.bag_ta_states, many.bag_ta_states, "states diverged");
+        assert_eq!(
+            single.bag_positive_include_masks, many.bag_positive_include_masks,
+            "positive masks diverged"
+        );
+        assert_eq!(
+            single.bag_negated_include_masks, many.bag_negated_include_masks,
+            "negated masks diverged"
+        );
+    }
+
+    /// Parallel evaluation must be value-identical to sequential, field by
+    /// field — including misprediction RECORD ORDER (the ordered-merge
+    /// property, which the sweep and the log both depend on).
+    #[test]
+    fn evaluation_is_worker_count_invariant() {
+        let engine = ClassifierEngine::ByteConv(make_engine(5, 2, 16, false));
+        let raw_documents: Vec<LabeledDocument> = (0..37)
+            .map(|i| LabeledDocument {
+                text: format!("document number {i}").into_bytes(),
+                label_is_positive: i % 3 == 0,
+            })
+            .collect();
+        let prepared =
+            preprocess_documents(PreprocessProfile::preset_p0(), &raw_documents).unwrap();
+
+        let sequential = evaluate_test_split_with_workers(
+            &engine,
+            &prepared,
+            &raw_documents,
+            WorkerCount::new(1).unwrap(),
+        )
+        .unwrap();
+        let parallel = evaluate_test_split_with_workers(
+            &engine,
+            &prepared,
+            &raw_documents,
+            WorkerCount::new(8).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(sequential.correct_at_zero, parallel.correct_at_zero);
+        assert_eq!(sequential.clause_fire_counts, parallel.clause_fire_counts);
+        assert_eq!(sequential.vote_sums, parallel.vote_sums);
+        assert_eq!(sequential.labels, parallel.labels);
+        assert_eq!(
+            sequential.mispredictions.len(),
+            parallel.mispredictions.len()
+        );
+        for (left, right) in sequential
+            .mispredictions
+            .iter()
+            .zip(parallel.mispredictions.iter())
+        {
+            assert_eq!(left.raw_text_bytes, right.raw_text_bytes);
+            assert_eq!(left.vote_sum_at_prediction, right.vote_sum_at_prediction);
+        }
     }
 }

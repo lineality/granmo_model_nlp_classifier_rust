@@ -1,0 +1,723 @@
+
+    /// Increments one automaton state (saturating at 2N), maintaining the
+    /// positive-include count cache and recomputing the affected slot mask
+    /// on an exclude→include boundary crossing.
+    ///
+    /// GuardedInclude variant (ablation flag): a POSITIVE literal is refused
+    /// the crossing while another positive literal at the same slot is
+    /// already included — the state clamps at the boundary N. This prunes
+    /// only provably-dead joint configurations (see design notes Q4a).
+    fn increment_ta_state(
+        &mut self,
+        clause: usize,
+        local_literal: usize,
+    ) -> Result<(), GranmoModelError> {
+        let depth_n = self.depth_for_clause(clause);
+        let twice_n = depth_n
+            .checked_mul(2)
+            .ok_or(GranmoModelError::BctArithmeticOverflow)?;
+        let global = self.global_state_index(clause, local_literal)?;
+        let state = *self
+            .ta_states
+            .get(global)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+
+        if state >= twice_n {
+            return Ok(()); // saturated deep-include; no change
+        }
+
+        let positive_region_len = self.patch_size * BYTE_ALPHABET_SIZE;
+        let is_positive_literal = local_literal < positive_region_len;
+        let crossing = state == depth_n;
+
+        if crossing && is_positive_literal && self.guard_for_clause(clause) {
+            let slot = local_literal / BYTE_ALPHABET_SIZE;
+            let slot_idx = self.global_slot_index(clause, slot)?;
+            let current_count = *self
+                .positive_include_counts
+                .get(slot_idx)
+                .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+            if current_count > 0 {
+                return Ok(()); // guard refuses the crossing; clamp at boundary
+            }
+        }
+
+        let new_state = state
+            .checked_add(1)
+            .ok_or(GranmoModelError::BctArithmeticOverflow)?;
+        *self
+            .ta_states
+            .get_mut(global)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)? = new_state;
+
+        if crossing {
+            let slot = if is_positive_literal {
+                local_literal / BYTE_ALPHABET_SIZE
+            } else {
+                (local_literal - positive_region_len) / BYTE_ALPHABET_SIZE
+            };
+            if is_positive_literal {
+                let slot_idx = self.global_slot_index(clause, slot)?;
+                let count = self
+                    .positive_include_counts
+                    .get_mut(slot_idx)
+                    .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+                *count = count
+                    .checked_add(1)
+                    .ok_or(GranmoModelError::BctArithmeticOverflow)?;
+            }
+            self.recompute_mask(clause, slot)?;
+        }
+        Ok(())
+    }
+
+    /// Decrements one automaton state (floor at 1), maintaining the count
+    /// cache and recomputing the slot mask on an include→exclude crossing.
+    fn decrement_ta_state(
+        &mut self,
+        clause: usize,
+        local_literal: usize,
+    ) -> Result<(), GranmoModelError> {
+        let depth_n = self.depth_for_clause(clause);
+        let boundary_plus_one = depth_n
+            .checked_add(1)
+            .ok_or(GranmoModelError::BctArithmeticOverflow)?;
+        let global = self.global_state_index(clause, local_literal)?;
+        let state = *self
+            .ta_states
+            .get(global)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+
+        if state <= 1 {
+            return Ok(()); // floor; no change
+        }
+
+        let new_state = state
+            .checked_sub(1)
+            .ok_or(GranmoModelError::BctArithmeticOverflow)?;
+        *self
+            .ta_states
+            .get_mut(global)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)? = new_state;
+
+        // Crossing include→exclude happens when the OLD state was N+1.
+        if state == boundary_plus_one {
+            let positive_region_len = self.patch_size * BYTE_ALPHABET_SIZE;
+            let is_positive_literal = local_literal < positive_region_len;
+            let slot = if is_positive_literal {
+                local_literal / BYTE_ALPHABET_SIZE
+            } else {
+                (local_literal - positive_region_len) / BYTE_ALPHABET_SIZE
+            };
+            if is_positive_literal {
+                let slot_idx = self.global_slot_index(clause, slot)?;
+                let count = self
+                    .positive_include_counts
+                    .get_mut(slot_idx)
+                    .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+                // saturating_sub as defence-in-depth; a validated invariant
+                // means this can never actually saturate.
+                *count = count.saturating_sub(1);
+            }
+            self.recompute_mask(clause, slot)?;
+        }
+        Ok(())
+    }
+
+    // --- Feedback (Phase 1 semantics preserved; §3 established facts) --------
+
+    /// Type Ia: clause fired and should have — reinforce the literal pattern
+    /// of ONE sampled fired window. True literals strengthen with
+    /// P ≈ (s−1)/s; false literals decay with P ≈ 1/s. All draws are u16
+    /// threshold coins — integer-only. Cost O(K × 512) literal visits.
+    /// Thresholds are fetched once per event through the per-clause
+    /// accessors (the M-Hetero seam); the coin-draw ORDER is unchanged, so
+    /// seeded runs are bit-identical to the pre-accessor implementation.
+    fn apply_type_ia_feedback(
+        &mut self,
+        clause: usize,
+        document: &[u8],
+        effective_len: usize,
+        window_start: usize,
+        rng: &mut FastRng,
+    ) -> Result<(), GranmoModelError> {
+        let reinforce_threshold = self.reinforce_threshold_for_clause(clause);
+        let forget_threshold = self.forget_threshold_for_clause(clause);
+        for slot in 0..self.patch_size {
+            let observed = Self::window_byte(document, effective_len, window_start, slot);
+            for byte_value in 0..BYTE_ALPHABET_SIZE {
+                let pos_local = self.positive_local_index(slot, byte_value);
+                let neg_local = self.negated_local_index(slot, byte_value);
+                let positive_literal_true = byte_value == usize::from(observed);
+
+                if positive_literal_true {
+                    if rng.coin(reinforce_threshold) {
+                        self.increment_ta_state(clause, pos_local)?;
+                    }
+                } else if rng.coin(forget_threshold) {
+                    self.decrement_ta_state(clause, pos_local)?;
+                }
+
+                // Negated literal truth is the complement.
+                if !positive_literal_true {
+                    if rng.coin(reinforce_threshold) {
+                        self.increment_ta_state(clause, neg_local)?;
+                    }
+                } else if rng.coin(forget_threshold) {
+                    self.decrement_ta_state(clause, neg_local)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Type Ib: clause should have fired but did not at ANY window —
+    /// input-independent uniform decay with P ≈ 1/s (no window selection is
+    /// meaningful here; §3 fact 3), freeing the clause to learn afresh.
+    fn apply_type_ib_feedback(
+        &mut self,
+        clause: usize,
+        rng: &mut FastRng,
+    ) -> Result<(), GranmoModelError> {
+        let forget_threshold = self.forget_threshold_for_clause(clause);
+        for local_literal in 0..self.literals_per_clause() {
+            if rng.coin(forget_threshold) {
+                self.decrement_ta_state(clause, local_literal)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Type II: clause fired but should not have — push toward including a
+    /// blocking literal by incrementing every literal FALSE in one sampled
+    /// fired window. (In a fired window all included literals are true, so
+    /// every false literal is currently excluded; incrementing it moves it
+    /// toward blocking.) Deterministic — no randomness in Type II.
+    fn apply_type_ii_feedback(
+        &mut self,
+        clause: usize,
+        document: &[u8],
+        effective_len: usize,
+        window_start: usize,
+    ) -> Result<(), GranmoModelError> {
+        for slot in 0..self.patch_size {
+            let observed = usize::from(Self::window_byte(
+                document,
+                effective_len,
+                window_start,
+                slot,
+            ));
+            for byte_value in 0..BYTE_ALPHABET_SIZE {
+                if byte_value != observed {
+                    // Positive literal (slot, b≠observed) is false here.
+                    self.increment_ta_state(clause, self.positive_local_index(slot, byte_value))?;
+                }
+            }
+            // Negated literal (slot, observed) is false here.
+            self.increment_ta_state(clause, self.negated_local_index(slot, observed))?;
+        }
+        Ok(())
+    }
+
+
+
+    /// Recomputes the allowed-bytes mask for (clause, slot) purely from raw
+    /// automaton states. Semantics (§4 of the specification of record):
+    /// - 0 positive includes: byte b allowed iff negated(b) not included;
+    /// - 1 positive include b*: only b* allowed, and only if negated(b*)
+    ///   is not also included;
+    /// - ≥2 positive includes: NOTHING allowed (structurally dead slot —
+    ///   the state the GuardedInclude variant refuses to enter).
+    fn compute_mask_from_states(
+        &self,
+        clause: usize,
+        slot: usize,
+    ) -> Result<[u64; MASK_WORDS], GranmoModelError> {
+        let depth_n = self.depth_for_clause(clause);
+        let pos_start = self.global_state_index(clause, self.positive_local_index(slot, 0))?;
+        let neg_start = self.global_state_index(clause, self.negated_local_index(slot, 0))?;
+        let pos_end = pos_start
+            .checked_add(BYTE_ALPHABET_SIZE)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+        let neg_end = neg_start
+            .checked_add(BYTE_ALPHABET_SIZE)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+        let pos_states = self
+            .ta_states
+            .get(pos_start..pos_end)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+        let neg_states = self
+            .ta_states
+            .get(neg_start..neg_end)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+
+        let included_positive_total = pos_states.iter().filter(|&&s| s > depth_n).count();
+
+        let mut mask = [0u64; MASK_WORDS];
+        if included_positive_total <= 1 {
+            for byte_value in 0..BYTE_ALPHABET_SIZE {
+                let negated_included = neg_states[byte_value] > depth_n;
+                let positive_ok = included_positive_total == 0 || pos_states[byte_value] > depth_n;
+                if positive_ok && !negated_included {
+                    mask[byte_value >> 6] |= 1u64 << (byte_value & 63);
+                }
+            }
+        }
+        Ok(mask)
+    }
+
+    /// Recomputes and stores the mask for (clause, slot). Called ONLY from
+    /// the two transition methods on boundary crossings — the invariant that
+    /// keeps evaluation O(K) bit-tests.
+    fn recompute_mask(&mut self, clause: usize, slot: usize) -> Result<(), GranmoModelError> {
+        let fresh_mask = self.compute_mask_from_states(clause, slot)?;
+        let slot_idx = self.global_slot_index(clause, slot)?;
+        let stored = self
+            .allowed_masks
+            .get_mut(slot_idx)
+            .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+        *stored = fresh_mask;
+        Ok(())
+    }
+
+
+    /// One stochastic training update for one document.
+    ///
+    /// Binary single-bank semantics (§4): label=1 target ⇒ positive-polarity
+    /// clauses get Type I and negative-polarity fired clauses get Type II,
+    /// gated per clause with P = (T−V)/2T; label=0 mirrors with (T+V)/2T.
+    /// The gate is an exact integer comparison computed by the shared
+    /// `resolve_feedback_gates` helper (Section 5C) — shared so ByteBagTM
+    /// uses the byte-identical gate implementation. Scanning (immutable)
+    /// completes for ALL clauses before any state mutation, so every
+    /// clause's feedback is attributed against the pre-update model — the
+    /// same discipline as Phase 1.
+    pub fn conv_train_step(
+        &mut self,
+        document: &[u8],
+        label_is_positive: bool,
+        rng: &mut FastRng,
+    ) -> Result<(), GranmoModelError> {
+        let (effective_len, _single_padded) = self.scan_plan(document);
+
+        // Pass 1 (immutable): per-clause fired flag + reservoir-sampled
+        // window + running vote sum. One scratch Vec per step (training is
+        // a research-harness path; per-step heap here is accepted and
+        // documented — the inference path allocates nothing).
+        let mut fired_and_sample: Vec<(bool, usize)> = Vec::with_capacity(self.n_clauses);
+        let mut vote: i32 = 0;
+        for clause in 0..self.n_clauses {
+            let (fired_count, sampled_start) = self.scan_clause_reservoir(clause, document, rng)?;
+            let fired = fired_count > 0;
+            if fired {
+                vote = if clause % 2 == 0 {
+                    vote.checked_add(1)
+                } else {
+                    vote.checked_sub(1)
+                }
+                .ok_or(GranmoModelError::BctArithmeticOverflow)?;
+            }
+            fired_and_sample.push((fired, sampled_start));
+        }
+
+        // Integer feedback gates (shared helper, Section 5C).
+        let gates = resolve_feedback_gates(vote, self.vote_threshold)?;
+
+        // Pass 2 (mutable): per-clause gated feedback.
+        for clause in 0..self.n_clauses {
+            let (fired, sampled_start) = *fired_and_sample
+                .get(clause)
+                .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+            let positive_polarity = clause % 2 == 0;
+
+            // Which feedback family, and which gate, this clause receives.
+            let (gate, receives_type_i) = if label_is_positive {
+                (gates.gate_when_target, positive_polarity)
+            } else {
+                (gates.gate_when_other, !positive_polarity)
+            };
+
+            let draw = rng.gen_index(gates.two_t)? as i32;
+            if draw >= gate {
+                continue; // gated out this step
+            }
+
+            if receives_type_i {
+                if fired {
+                    self.apply_type_ia_feedback(
+                        clause,
+                        document,
+                        effective_len,
+                        sampled_start,
+                        rng,
+                    )?;
+                } else {
+                    self.apply_type_ib_feedback(clause, rng)?;
+                }
+            } else if fired {
+                self.apply_type_ii_feedback(clause, document, effective_len, sampled_start)?;
+            }
+        }
+        Ok(())
+    }
+
+
+    /// Test-only helper: forces a literal fully into the include region via
+    /// the counter-maintaining transition path, so tests can hand-construct
+    /// exact clauses without breaking the mask/count invariants. Terminates
+    /// when the state stops changing (saturated at 2N, or refused by the
+    /// GuardedInclude clamp).
+    #[cfg(test)]
+    fn conv_test_force_include(&mut self, clause: usize, local_literal: usize) {
+        loop {
+            let global = self.global_state_index(clause, local_literal).unwrap();
+            let before = self.ta_states[global];
+            self.increment_ta_state(clause, local_literal).unwrap();
+            let after = self.ta_states[global];
+            if after == before {
+                break;
+            }
+        }
+    }
+}
+
+
+    /// Sets or clears the include-mask bit for one literal. Called ONLY
+    /// from the two transition methods on boundary crossings — the exact
+    /// analogue of the conv engine's mask recompute discipline, except a
+    /// bag crossing maps to a single bit, so set/clear is exact.
+    fn bag_set_include_bit(
+        &mut self,
+        clause: usize,
+        local_literal: usize,
+        included: bool,
+    ) -> Result<(), GranmoModelError> {
+        let feature_count = self.bag_feature_count();
+        let (range_start, _range_end) = self.bag_mask_word_range(clause)?;
+        let (rank, is_positive_literal) = if local_literal < feature_count {
+            (local_literal, true)
+        } else {
+            (local_literal - feature_count, false)
+        };
+        if rank >= feature_count {
+            return Err(GranmoModelError::BbgEngineIndexOutOfRange);
+        }
+        let word_index = range_start
+            .checked_add(rank >> 6)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+        let target_masks = if is_positive_literal {
+            &mut self.bag_positive_include_masks
+        } else {
+            &mut self.bag_negated_include_masks
+        };
+        let word = target_masks
+            .get_mut(word_index)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+        if included {
+            *word |= 1u64 << (rank & 63);
+        } else {
+            *word &= !(1u64 << (rank & 63));
+        }
+        Ok(())
+    }
+
+    // --- Automaton transitions (ALL state changes route through these) -----------
+
+    /// Increments one automaton state (saturating at 2N), setting the
+    /// include-mask bit on an exclude→include boundary crossing.
+    fn bag_increment_automaton(
+        &mut self,
+        clause: usize,
+        local_literal: usize,
+    ) -> Result<(), GranmoModelError> {
+        let clause_depth = self.bag_depth_for_clause(clause);
+        let saturation_ceiling = clause_depth
+            .checked_mul(2)
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+        let state_index = self.bag_state_index(clause, local_literal)?;
+        let current_state = *self
+            .bag_ta_states
+            .get(state_index)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+
+        if current_state >= saturation_ceiling {
+            return Ok(()); // saturated deep-include; no change
+        }
+
+        let updated_state = current_state
+            .checked_add(1)
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+        *self
+            .bag_ta_states
+            .get_mut(state_index)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)? = updated_state;
+
+        // Crossing exclude→include: the OLD state was exactly N.
+        if current_state == clause_depth {
+            self.bag_set_include_bit(clause, local_literal, true)?;
+        }
+        Ok(())
+    }
+
+    /// Decrements one automaton state (floor at 1), clearing the
+    /// include-mask bit on an include→exclude boundary crossing.
+    fn bag_decrement_automaton(
+        &mut self,
+        clause: usize,
+        local_literal: usize,
+    ) -> Result<(), GranmoModelError> {
+        let clause_depth = self.bag_depth_for_clause(clause);
+        let boundary_plus_one = clause_depth
+            .checked_add(1)
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+        let state_index = self.bag_state_index(clause, local_literal)?;
+        let current_state = *self
+            .bag_ta_states
+            .get(state_index)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+
+        if current_state <= 1 {
+            return Ok(()); // floor; no change
+        }
+
+        let updated_state = current_state
+            .checked_sub(1)
+            .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+        *self
+            .bag_ta_states
+            .get_mut(state_index)
+            .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)? = updated_state;
+
+        // Crossing include→exclude: the OLD state was exactly N+1.
+        if current_state == boundary_plus_one {
+            self.bag_set_include_bit(clause, local_literal, false)?;
+        }
+        Ok(())
+    }
+
+    // --- Feedback (Phase-1 FLAT semantics; no window sampling) --------------------
+
+    /// Type Ia: clause fired and should have. For every literal: true
+    /// literals reinforce at the reinforce coin, false literals decay at
+    /// the forget coin. A shingle's presence makes its positive literal
+    /// true and its negated twin false, and vice versa. Cost O(2M).
+    fn bag_apply_type_ia_feedback(
+        &mut self,
+        clause: usize,
+        presence_bits: &[u64],
+        rng: &mut FastRng,
+    ) -> Result<(), GranmoModelError> {
+        let reinforce_coin = self.bag_reinforce_threshold_for_clause(clause);
+        let forget_coin = self.bag_forget_threshold_for_clause(clause);
+        let feature_count = self.bag_feature_count();
+        for rank in 0..feature_count {
+            let shingle_present = Self::bag_presence_bit(presence_bits, rank)?;
+            // Negated twin at M + rank (M <= 65000: sum safe in usize).
+            let positive_local = rank;
+            let negated_local = feature_count + rank;
+
+            if shingle_present {
+                // Positive literal TRUE, negated literal FALSE.
+                if rng.coin(reinforce_coin) {
+                    self.bag_increment_automaton(clause, positive_local)?;
+                }
+                if rng.coin(forget_coin) {
+                    self.bag_decrement_automaton(clause, negated_local)?;
+                }
+            } else {
+                // Positive literal FALSE, negated literal TRUE.
+                if rng.coin(forget_coin) {
+                    self.bag_decrement_automaton(clause, positive_local)?;
+                }
+                if rng.coin(reinforce_coin) {
+                    self.bag_increment_automaton(clause, negated_local)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Type Ib: clause should have fired but did not — input-independent
+    /// uniform decay with P ≈ 1/s over ALL literals (identical semantics to
+    /// the conv engine's Type Ib; §3 established fact 3).
+    fn bag_apply_type_ib_feedback(
+        &mut self,
+        clause: usize,
+        rng: &mut FastRng,
+    ) -> Result<(), GranmoModelError> {
+        let forget_coin = self.bag_forget_threshold_for_clause(clause);
+        for local_literal in 0..self.bag_literals_per_clause() {
+            if rng.coin(forget_coin) {
+                self.bag_decrement_automaton(clause, local_literal)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Type II: clause fired but should not have — deterministically
+    /// increment every FALSE literal toward inclusion, so the clause
+    /// acquires a blocking literal. False literals: the positive literal
+    /// of every ABSENT shingle, and the negated literal of every PRESENT
+    /// shingle. No randomness in Type II (same as the conv engine).
+    fn bag_apply_type_ii_feedback(
+        &mut self,
+        clause: usize,
+        presence_bits: &[u64],
+    ) -> Result<(), GranmoModelError> {
+        let feature_count = self.bag_feature_count();
+        for rank in 0..feature_count {
+            let shingle_present = Self::bag_presence_bit(presence_bits, rank)?;
+            if shingle_present {
+                // Negated literal (M + rank) is false here.
+                self.bag_increment_automaton(clause, feature_count + rank)?;
+            } else {
+                // Positive literal (rank) is false here.
+                self.bag_increment_automaton(clause, rank)?;
+            }
+        }
+        Ok(())
+    }
+
+
+    /// One stochastic training update for one document, flat semantics.
+    ///
+    /// Features are extracted ONCE (locked decision). Pass 1 (immutable)
+    /// evaluates every clause and accumulates the vote BEFORE any state
+    /// mutation — the same pre-update-attribution discipline as the conv
+    /// engine. The (T∓V)/2T gate comes from the SHARED
+    /// `resolve_feedback_gates` helper (Section 5C), so both engines train
+    /// with byte-identical gate mechanics. The per-step allocations
+    /// (presence bitset, fired-flag Vec) are documented harness-tier heap
+    /// use, mirroring the conv engine's documented scratch Vec.
+    pub fn bag_train_step(
+        &mut self,
+        document: &[u8],
+        label_is_positive: bool,
+        rng: &mut FastRng,
+    ) -> Result<(), GranmoModelError> {
+        let presence_bits = self.bag_document_presence_bits(document)?;
+
+        // Pass 1 (immutable): fired flags + vote sum.
+        let mut fired_flags: Vec<bool> = Vec::with_capacity(self.bag_clause_total);
+        let mut vote: i32 = 0;
+        for clause in 0..self.bag_clause_total {
+            let fired = self.bag_clause_fires(clause, &presence_bits)?;
+            if fired {
+                vote = if clause % 2 == 0 {
+                    vote.checked_add(1)
+                } else {
+                    vote.checked_sub(1)
+                }
+                .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+            }
+            fired_flags.push(fired);
+        }
+
+        // Integer feedback gates (shared helper, Section 5C).
+        let gates = resolve_feedback_gates(vote, self.bag_vote_target)?;
+
+        // Pass 2 (mutable): per-clause gated feedback, flat semantics —
+        // no window sampling exists for a bag.
+        for clause in 0..self.bag_clause_total {
+            let fired = *fired_flags
+                .get(clause)
+                .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+            let positive_polarity = clause % 2 == 0;
+
+            // Which feedback family, and which gate, this clause receives.
+            let (gate, receives_type_i) = if label_is_positive {
+                (gates.gate_when_target, positive_polarity)
+            } else {
+                (gates.gate_when_other, !positive_polarity)
+            };
+
+            let draw = rng.gen_index(gates.two_t)? as i32;
+            if draw >= gate {
+                continue; // gated out this step
+            }
+
+            if receives_type_i {
+                if fired {
+                    self.bag_apply_type_ia_feedback(clause, &presence_bits, rng)?;
+                } else {
+                    self.bag_apply_type_ib_feedback(clause, rng)?;
+                }
+            } else if fired {
+                self.bag_apply_type_ii_feedback(clause, &presence_bits)?;
+            }
+        }
+        Ok(())
+    }
+
+
+    /// Test-only helper: forces a literal fully into the include region via
+    /// the mask-maintaining transition path, so tests can hand-construct
+    /// exact clauses without breaking the mask invariants. Terminates when
+    /// the state stops changing (saturated at 2N). Mirrors the conv
+    /// engine's `test_force_include`, with a unique name per project rule.
+    #[cfg(test)]
+    fn bag_test_force_include(&mut self, clause: usize, local_literal: usize) {
+        loop {
+            let state_index = self.bag_state_index(clause, local_literal).unwrap();
+            let before = self.bag_ta_states[state_index];
+            self.bag_increment_automaton(clause, local_literal).unwrap();
+            let after = self.bag_ta_states[state_index];
+            if after == before {
+                break;
+            }
+        }
+    }
+
+ /// Rebuilds both include masks purely from raw automaton states
+    /// (artifact-load path, gate 3). Masks are zeroed and re-derived
+    /// through the same `bag_set_include_bit` path used by live training.
+    /// After this, `bag_validate_internal_consistency` must pass by
+    /// construction — it is still run as the final load gate
+    /// (defence-in-depth, mirroring the conv engine's
+    /// `rebuild_caches_from_states` pattern).
+    fn bag_rebuild_masks_from_states(&mut self) -> Result<(), GranmoModelError> {
+        for word in self.bag_positive_include_masks.iter_mut() {
+            *word = 0;
+        }
+        for word in self.bag_negated_include_masks.iter_mut() {
+            *word = 0;
+        }
+        let feature_count = self.bag_feature_count();
+        for clause in 0..self.bag_clause_total {
+            let clause_depth = self.bag_depth_for_clause(clause);
+            for rank in 0..feature_count {
+                let positive_state = *self
+                    .bag_ta_states
+                    .get(self.bag_state_index(clause, rank)?)
+                    .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+                if positive_state > clause_depth {
+                    self.bag_set_include_bit(clause, rank, true)?;
+                }
+                let negated_state = *self
+                    .bag_ta_states
+                    .get(self.bag_state_index(clause, feature_count + rank)?)
+                    .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+                if negated_state > clause_depth {
+                    self.bag_set_include_bit(clause, feature_count + rank, true)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// One stochastic training update for one document (dispatch).
+    pub fn engine_train_step(
+        &mut self,
+        document: &[u8],
+        label_is_positive: bool,
+        rng: &mut FastRng,
+    ) -> Result<(), GranmoModelError> {
+        match self {
+            Self::ByteConv(conv_engine) => {
+                conv_engine.conv_train_step(document, label_is_positive, rng)
+            }
+            Self::ByteBag(bag_engine) => {
+                bag_engine.bag_train_step(document, label_is_positive, rng)
+            }
+        }
+    }

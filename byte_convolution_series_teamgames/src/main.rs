@@ -1,5 +1,7 @@
 //! # Byte-Convolution Granmo Model — Phase 2 Crate
 //!
+//! Observing: https://github.com/lineality/rust_lang_rules
+//!
 //! Binary classification of short social-media text (hate/bullying
 //! detection) using byte-level Granmo Models (per Granmo 2018, the
 //! bandit-driven propositional-logic learning architecture), built to a
@@ -223,6 +225,18 @@ pub enum GranmoModelError {
     /// report wiring is corrupt; one shared code for these harness-internal
     /// sites by design.
     CliFireRateReportInternalFault = 807,
+    /// The misprediction-log path, after default resolution, was not
+    /// absolute (crate-wide absolute-path policy: log locations must be
+    /// unambiguous for reproducibility). Occurs only when an operator
+    /// supplies a relative `--log-out` AND the fallback resolution against
+    /// the executable directory also fails.
+    CliLogPathNotAbsolute = 808,
+    /// Creating the misprediction-log parent directory failed (filesystem
+    /// detail dropped per no-PII policy). RETRYABLE: may be transient.
+    CliLogDirCreateFailed = 809,
+    /// Opening/appending the misprediction-log file failed (filesystem
+    /// detail dropped per no-PII policy). RETRYABLE: may be transient.
+    CliLogWriteFailed = 810,
     // --- 900–999: ByteBag baseline (`Bbg*`) — flat bag-of-byte-n-grams,
     //     the scientific control for "does convolution earn its complexity"
     //     (§8 success criteria). ---
@@ -277,9 +291,16 @@ impl GranmoModelError {
     /// cannot help).
     pub fn is_retryable(&self) -> bool {
         match self {
-            Self::ArtFileWriteFailed | Self::ArtFileReadFailed | Self::DsFileReadFailed => true,
+            // True Arm
+            Self::ArtFileWriteFailed
+            | Self::ArtFileReadFailed
+            | Self::DsFileReadFailed
+            | Self::CliLogDirCreateFailed
+            | Self::CliLogWriteFailed => true,
 
+            // False Arm
             Self::PpProfileReservedBitsSet
+            | Self::CliLogPathNotAbsolute
             | Self::PpProfileRecheckCorrupt
             | Self::RngGenIndexEmptyRange
             | Self::CfgPatchSizeOutOfBounds
@@ -3641,6 +3662,11 @@ pub struct ExperimentReport {
     /// vote-imbalance risk and for deciding whether the CoTM clause-weight
     /// arm gets pulled forward.
     pub clause_fire_counts: Vec<u32>,
+    /// Test documents misclassified at the default threshold V > 0,
+    /// captured for the misprediction inspection log. Pairs raw and
+    /// preprocessed text so label errors AND preprocessing artifacts are
+    /// both auditable.
+    pub mispredictions: Vec<MispredictionRecord>,
 }
 
 /// Preprocesses every document ONCE through the given profile — the
@@ -3687,6 +3713,186 @@ fn vote_from_fired_words(
         }
     }
     Ok(vote)
+}
+
+// ---------------------------------------------------------------------------
+// Misprediction inspection log (research-harness tier)
+// ---------------------------------------------------------------------------
+//
+// Purpose: after evaluation, every test document the model got wrong at the
+// default decision threshold (V > 0) is captured so an operator can inspect
+// whether the DATA is wrong (mislabeled "golden" records are common in
+// scraped corpora) or the MODEL is wrong. Records carry BOTH the raw bytes
+// (what the dataset says) and the preprocessed bytes (what the engine
+// actually scored), because preprocessing differences are themselves a
+// frequent cause of mispredictions and the two views diverge under most
+// presets.
+//
+// Policies (matching crate law):
+// - Absolute paths only. The DEFAULT log path is resolved against the
+//   executable's parent directory (the crate's logging rule of thumb), so
+//   it never depends on the caller's working directory.
+// - Logging is BEST-EFFORT at call sites: a failed log write must never
+//   abort a training run whose report has already been produced. Callers
+//   receive the Result and decide; the provided CLI hooks warn and proceed.
+// - Error paths allocate nothing and carry no PII (codes only); document
+//   text goes to the log FILE, never to stderr.
+
+/// One captured misprediction: a test document the engine classified
+/// incorrectly at the default decision threshold (V > 0).
+#[derive(Debug, Clone)]
+pub struct MispredictionRecord {
+    /// Raw un-preprocessed document bytes, exactly as loaded from the
+    /// dataset (for auditing the LABEL against the original text).
+    pub raw_text_bytes: Vec<u8>,
+    /// Preprocessed document bytes, exactly as the engine scored them
+    /// (for auditing the MODEL's view of the text).
+    pub preprocessed_text_bytes: Vec<u8>,
+    /// Ground-truth label from the dataset (true = positive / 1).
+    pub actual_label_is_positive: bool,
+    /// Predicted label at the default threshold V > 0.
+    pub predicted_label_is_positive: bool,
+    /// The signed vote sum V that produced the prediction. A small |V|
+    /// means a near-miss; a large wrong-signed |V| means the model is
+    /// confidently wrong — the most interesting records to inspect.
+    pub vote_sum_at_prediction: i32,
+}
+
+/// Resolves the default misprediction-log path: `<executable_dir>/logs/
+/// misprediction_log.txt`. Anchoring to the executable's parent directory
+/// (rather than the working directory) keeps the location deterministic
+/// across shells, cron jobs, and IDE runners — the absolute-path policy's
+/// intent. Failure to locate the executable is reported, never guessed
+/// around.
+pub fn resolve_default_misprediction_log_path() -> Result<std::path::PathBuf, GranmoModelError> {
+    let executable_path = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(_dropped_io_detail) => {
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "CLI-808: could not resolve executable path: {}",
+                _dropped_io_detail
+            );
+            return Err(GranmoModelError::CliLogPathNotAbsolute);
+        }
+    };
+    let executable_dir = match executable_path.parent() {
+        Some(dir) => dir,
+        None => return Err(GranmoModelError::CliLogPathNotAbsolute),
+    };
+    let resolved = executable_dir.join("logs").join("misprediction_log.txt");
+    if !resolved.is_absolute() {
+        return Err(GranmoModelError::CliLogPathNotAbsolute);
+    }
+    Ok(resolved)
+}
+
+/// Appends misprediction records to a persistent inspection log.
+///
+/// One record per line, tab-separated fields:
+/// `data_path`, `run_label` (preset), `engine`, `actual`, `pred`, `vote`,
+/// `raw_text`, `prep_text`. Interior newlines/carriage returns and tabs in
+/// document text are replaced with spaces so the file stays strictly
+/// line-per-record and field-per-tab (greppable / spreadsheet-importable).
+/// Text is rendered with lossy UTF-8 so arbitrary byte streams (this is a
+/// byte-level model) remain printable without ever panicking.
+///
+/// Behavior contract:
+/// - `log_path` must be absolute (crate-wide policy) -> `CliLogPathNotAbsolute`.
+/// - Empty `mispredictions` is a successful no-op: the file and directory
+///   are NOT created for a clean run.
+/// - Append mode: prior runs' records are preserved (this is the point —
+///   accumulating a cross-run inspection corpus).
+/// - No `?` on I/O: each failure site maps to its specific code explicitly.
+pub fn append_mispredictions_to_log(
+    log_path: &std::path::Path,
+    data_source_path: &std::path::Path,
+    run_label: &str,
+    engine_name: &str,
+    mispredictions: &[MispredictionRecord],
+) -> Result<(), GranmoModelError> {
+    if mispredictions.is_empty() {
+        return Ok(()); // clean run: deliberately no file/dir creation
+    }
+    if !log_path.is_absolute() {
+        #[cfg(debug_assertions)]
+        eprintln!("CLI-808: log path not absolute: {}", log_path.display());
+        return Err(GranmoModelError::CliLogPathNotAbsolute);
+    }
+
+    if let Some(parent_dir) = log_path.parent() {
+        if !parent_dir.as_os_str().is_empty() {
+            if let Err(_dropped_io_detail) = std::fs::create_dir_all(parent_dir) {
+                #[cfg(debug_assertions)]
+                eprintln!("CLI-809: log dir create failed: {}", _dropped_io_detail);
+                return Err(GranmoModelError::CliLogDirCreateFailed);
+            }
+        }
+    }
+
+    let opened_file = match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+    {
+        Ok(file) => file,
+        Err(_dropped_io_detail) => {
+            #[cfg(debug_assertions)]
+            eprintln!("CLI-810: log open failed: {}", _dropped_io_detail);
+            return Err(GranmoModelError::CliLogWriteFailed);
+        }
+    };
+    let mut log_writer = std::io::BufWriter::new(opened_file);
+    use std::io::Write;
+
+    /// Renders document bytes as one log field: lossy UTF-8, with the
+    /// line/field separator characters folded to spaces.
+    fn render_log_text_field(text_bytes: &[u8]) -> String {
+        String::from_utf8_lossy(text_bytes)
+            .chars()
+            .map(|c| {
+                if matches!(c, '\n' | '\r' | '\t') {
+                    ' '
+                } else {
+                    c
+                }
+            })
+            .collect()
+    }
+
+    for record in mispredictions {
+        let write_outcome = writeln!(
+            log_writer,
+            "data_path={}\trun={}\tengine={}\tactual={}\tpred={}\tvote={}\traw_text=\"{}\"\tprep_text=\"{}\"",
+            data_source_path.display(),
+            run_label,
+            engine_name,
+            if record.actual_label_is_positive {
+                "1"
+            } else {
+                "0"
+            },
+            if record.predicted_label_is_positive {
+                "1"
+            } else {
+                "0"
+            },
+            record.vote_sum_at_prediction,
+            render_log_text_field(&record.raw_text_bytes),
+            render_log_text_field(&record.preprocessed_text_bytes),
+        );
+        if let Err(_dropped_io_detail) = write_outcome {
+            #[cfg(debug_assertions)]
+            eprintln!("CLI-810: log line write failed: {}", _dropped_io_detail);
+            return Err(GranmoModelError::CliLogWriteFailed);
+        }
+    }
+    if let Err(_dropped_io_detail) = log_writer.flush() {
+        #[cfg(debug_assertions)]
+        eprintln!("CLI-810: log flush failed: {}", _dropped_io_detail);
+        return Err(GranmoModelError::CliLogWriteFailed);
+    }
+    Ok(())
 }
 
 /// Trains one engine and evaluates it on the held-out set.
@@ -3772,13 +3978,56 @@ pub fn run_single_experiment(
     }
     let train_seconds = start.elapsed().as_secs_f64();
 
+    // // Evaluation pass: fired bits -> vote + fire counts (see doc above).
+    // let engine_clause_total = engine.engine_clause_count();
+    // let mut clause_fire_counts: Vec<u32> = vec![0u32; engine_clause_total];
+    // let mut vote_sums = Vec::with_capacity(test_prepared.len());
+    // let mut labels = Vec::with_capacity(test_prepared.len());
+    // let mut correct_at_zero = 0usize;
+    // for (document, label) in &test_prepared {
+    //     let fired_words = engine.engine_fired_clause_bits(document)?;
+    //     let vote = vote_from_fired_words(&fired_words, engine_clause_total)?;
+    //     for clause in 0..engine_clause_total {
+    //         let fired_word = fired_words
+    //             .get(clause >> 6)
+    //             .copied()
+    //             .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+    //         if fired_word & (1u64 << (clause & 63)) != 0 {
+    //             let count_slot = clause_fire_counts
+    //                 .get_mut(clause)
+    //                 .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+    //             *count_slot = count_slot
+    //                 .checked_add(1)
+    //                 .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+    //         }
+    //     }
+    //     if (vote > 0) == *label {
+    //         correct_at_zero += 1;
+    //     }
+    //     vote_sums.push(vote);
+    //     labels.push(*label);
+    // }
+
     // Evaluation pass: fired bits -> vote + fire counts (see doc above).
+    //
+    // INVARIANT (misprediction capture): `test_prepared` was produced by
+    // `preprocess_documents`, which emits exactly one output per input in
+    // input order — so index i pairs each prepared document with its raw
+    // original in `test_documents`. If preprocessing ever filters or
+    // reorders, this pairing breaks; the length check below catches that
+    // in every mode, not just debug.
+    if test_prepared.len() != test_documents.len() {
+        return Err(GranmoModelError::CliFireRateReportInternalFault);
+    }
+
     let engine_clause_total = engine.engine_clause_count();
     let mut clause_fire_counts: Vec<u32> = vec![0u32; engine_clause_total];
     let mut vote_sums = Vec::with_capacity(test_prepared.len());
     let mut labels = Vec::with_capacity(test_prepared.len());
+    let mut mispredictions: Vec<MispredictionRecord> = Vec::new();
     let mut correct_at_zero = 0usize;
-    for (document, label) in &test_prepared {
+
+    for (doc_index, (document, label)) in test_prepared.iter().enumerate() {
         let fired_words = engine.engine_fired_clause_bits(document)?;
         let vote = vote_from_fired_words(&fired_words, engine_clause_total)?;
         for clause in 0..engine_clause_total {
@@ -3795,12 +4044,26 @@ pub fn run_single_experiment(
                     .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
             }
         }
-        if (vote > 0) == *label {
+
+        let predicted_positive = vote > 0;
+        if predicted_positive == *label {
             correct_at_zero += 1;
+        } else {
+            let raw_original = test_documents
+                .get(doc_index)
+                .ok_or(GranmoModelError::CliFireRateReportInternalFault)?;
+            mispredictions.push(MispredictionRecord {
+                raw_text_bytes: raw_original.text.clone(),
+                preprocessed_text_bytes: document.clone(),
+                actual_label_is_positive: *label,
+                predicted_label_is_positive: predicted_positive,
+                vote_sum_at_prediction: vote,
+            });
         }
         vote_sums.push(vote);
         labels.push(*label);
     }
+
     let accuracy_at_zero = correct_at_zero as f64 / test_prepared.len() as f64;
 
     let sweep_rows = sweep_decision_thresholds(&vote_sums, &labels)?;
@@ -3822,6 +4085,7 @@ pub fn run_single_experiment(
         best_f1_row,
         train_seconds,
         clause_fire_counts,
+        mispredictions,
     };
     Ok((engine, report))
 }
@@ -3858,6 +4122,7 @@ struct CliArgs {
     model_out: Option<std::path::PathBuf>,
     model_in: Option<std::path::PathBuf>,
     predict_text: Option<String>,
+    log_out: Option<std::path::PathBuf>,
 }
 
 /// Maps a preset name to its profile (§5 presets of record).
@@ -3936,6 +4201,7 @@ impl CliArgs {
             model_out: None,
             model_in: None,
             predict_text: None,
+            log_out: None,
         };
 
         /// Fetches the value after a flag; a flag at end-of-args is an error.
@@ -4026,6 +4292,9 @@ impl CliArgs {
                     print_help();
                     std::process::exit(0);
                 }
+                "--log-out" => {
+                    parsed.log_out = Some(std::path::PathBuf::from(take_value(args, &mut i, flag)?))
+                }
                 _unknown => {
                     #[cfg(debug_assertions)]
                     eprintln!("CLI-800: unknown flag '{}'", _unknown);
@@ -4076,6 +4345,7 @@ fn print_help() {
     println!("  --clauses 200 | --vote-threshold 50 | --states 100");
     println!("  --specificity 5.0 | --max-scan 1024 | --epochs 25 | --seed 42");
     println!("  --train-percent 80 | --model-out /abs/path.gmb");
+    println!("  --log-out /abs/path.txt  (misprediction inspection log; default: <exe_dir>/logs/)");
 }
 
 /// Formats the S2-8 fire-rate diagnostic as one compact line: counts of
@@ -4114,34 +4384,188 @@ fn summarize_fire_counts(clause_fire_counts: &[u32], test_count: usize) -> Strin
     )
 }
 
-/// Prints one experiment report (reporting tier: println is this code's
-/// output channel, not a diagnostic leak).
+// /// Prints one experiment report (reporting tier: println is this code's
+// /// output channel, not a diagnostic leak).
+// fn print_experiment_report(run_label: &str, report: &ExperimentReport) {
+//     println!(
+//         "--- run: {run_label} [engine: {}] ---",
+//         report.engine_name_reported
+//     );
+//     println!(
+//         "  train/test: {}/{}   train time: {:.2}s",
+//         report.train_count, report.test_count, report.train_seconds
+//     );
+//     println!("  accuracy @ V>0:   {:.4}", report.accuracy_at_zero);
+//     let best = &report.best_f1_row;
+//     println!(
+//         "  best-F1 threshold {}: P {:.4} R {:.4} F1 {:.4}  (TP {} FP {} TN {} FN {})",
+//         best.decision_threshold,
+//         best.precision,
+//         best.recall,
+//         best.f1,
+//         best.true_positives,
+//         best.false_positives,
+//         best.true_negatives,
+//         best.false_negatives
+//     );
+//     println!(
+//         "  {}",
+//         summarize_fire_counts(&report.clause_fire_counts, report.test_count)
+//     );
+// }
+
+/// Prints a formatted classification evaluation report with metrics,
+/// a 2x2 confusion matrix grid, and clause fire-rate diagnostics.
 fn print_experiment_report(run_label: &str, report: &ExperimentReport) {
-    println!(
-        "--- run: {run_label} [engine: {}] ---",
-        report.engine_name_reported
-    );
-    println!(
-        "  train/test: {}/{}   train time: {:.2}s",
-        report.train_count, report.test_count, report.train_seconds
-    );
-    println!("  accuracy @ V>0:   {:.4}", report.accuracy_at_zero);
     let best = &report.best_f1_row;
+
+    println!("\n============================================================");
+    println!("               Classification Evaluation Report             ");
+    println!("============================================================");
     println!(
-        "  best-F1 threshold {}: P {:.4} R {:.4} F1 {:.4}  (TP {} FP {} TN {} FN {})",
-        best.decision_threshold,
-        best.precision,
-        best.recall,
-        best.f1,
-        best.true_positives,
-        best.false_positives,
-        best.true_negatives,
-        best.false_negatives
+        "  Run Preset:        {:<12} (Engine: {})",
+        run_label, report.engine_name_reported
     );
+    println!(
+        "  Train/Test Split:  {}/{} samples",
+        report.train_count, report.test_count
+    );
+    println!("  Training Time:     {:.2}s", report.train_seconds);
+    println!("------------------------------------------------------------");
+    println!(
+        "  Accuracy (@ V > 0): {:.2}%",
+        report.accuracy_at_zero * 100.0
+    );
+    println!("  Best-F1 Threshold:  V > {}", best.decision_threshold);
+    println!("  Precision:          {:.4}", best.precision);
+    println!("  Recall:             {:.4}", best.recall);
+    println!("  F1-Score:           {:.4}", best.f1);
+    println!("------------------------------------------------------------");
+    println!("Confusion Matrix (at optimal threshold):");
+    println!("{:<18}{:<12}{:<12}", "", "Pred Neg (0)", "Pred Pos (1)");
+    println!(
+        "{:<18}{:<12}{:<12}",
+        "Actual Neg (0)", best.true_negatives, best.false_positives
+    );
+    println!(
+        "{:<18}{:<12}{:<12}",
+        "Actual Pos (1)", best.false_negatives, best.true_positives
+    );
+    println!("------------------------------------------------------------");
+    println!("Clause Dynamics:");
     println!(
         "  {}",
         summarize_fire_counts(&report.clause_fire_counts, report.test_count)
     );
+    println!("============================================================\n");
+}
+
+/*
+Alt version draft
+fn handle_train(args: &CliArgs) -> Result<(), GranmoModelError> {
+    let data_path = args
+        .data_path
+        .as_ref()
+        .ok_or(GranmoModelError::CliMissingRequiredFlag)?;
+
+    println!("[1/3] Loading dataset from: {}", data_path.display());
+    let documents = load_labeled_jsonl(
+        data_path,
+        &args.text_key,
+        &args.label_key,
+        &args.positive_label,
+    )?;
+    println!("  Total valid records loaded: {}", documents.len());
+
+    let mut split_rng = FastRng::seed(args.seed);
+    let (train_side, test_side) = split_dataset(&documents, args.train_percent, &mut split_rng)?;
+    println!(
+        "  Split dataset: {} train rows ({:.0}%), {} test rows ({:.0}%)",
+        train_side.len(),
+        args.train_percent,
+        test_side.len(),
+        100 - args.train_percent
+    );
+
+    let run_config = args.to_run_config()?;
+    println!("[2/3] Initializing {} engine with preset '{}'...",
+        args.engine_selection_from_name(&args.preset_name).map(|_| args.engine_selection).unwrap_or(EngineSelection::ByteConv).name(),
+        args.preset_name
+    );
+
+    println!(
+        "[3/3] Training {} ({} clauses, T={}, epochs={})...",
+        match run_config.engine_selection {
+            EngineSelection::ByteConv => "ByteConvTM",
+            EngineSelection::ByteBag => "ByteBagTM",
+        },
+        run_config.n_clauses,
+        run_config.vote_threshold,
+        run_config.epochs
+    );
+
+    let (engine, report) = run_single_experiment(&train_side, &test_side, &run_config)?;
+    print_experiment_report(&args.preset_name, &report);
+
+    if let Some(model_path) = &args.model_out {
+        let artifact = ModelArtifact {
+            preprocess_profile: run_config.profile,
+            engine,
+        };
+        artifact.save_to_file(model_path)?;
+        println!("Successfully saved trained model artifact to: {}", model_path.display());
+    }
+    Ok(())
+}
+*/
+
+/// Best-effort misprediction logging for the CLI handlers. Resolves the
+/// destination (`--log-out` override, else the executable-anchored
+/// default), attempts the append, and reports the outcome to stdout.
+/// DELIBERATELY NON-FATAL: a training run whose report has already printed
+/// must not exit nonzero because telemetry writing failed — the error code
+/// is surfaced for the operator instead of propagated.
+fn log_mispredictions_best_effort(
+    explicit_log_path: Option<&std::path::Path>,
+    data_source_path: &std::path::Path,
+    run_label: &str,
+    report: &ExperimentReport,
+) {
+    if report.mispredictions.is_empty() {
+        println!("misprediction log: no mispredictions this run (nothing appended)");
+        return;
+    }
+    let resolved_path = match explicit_log_path {
+        Some(path) => path.to_path_buf(),
+        None => match resolve_default_misprediction_log_path() {
+            Ok(path) => path,
+            Err(resolution_error) => {
+                println!(
+                    "misprediction log SKIPPED: path resolution failed (code {})",
+                    resolution_error.code()
+                );
+                return;
+            }
+        },
+    };
+    match append_mispredictions_to_log(
+        &resolved_path,
+        data_source_path,
+        run_label,
+        report.engine_name_reported,
+        &report.mispredictions,
+    ) {
+        Ok(()) => println!(
+            "misprediction log: appended {} records to {}",
+            report.mispredictions.len(),
+            resolved_path.display()
+        ),
+        Err(append_error) => println!(
+            "misprediction log FAILED (code {}, retryable: {}) — run results above are unaffected",
+            append_error.code(),
+            append_error.is_retryable()
+        ),
+    }
 }
 
 fn handle_train(args: &CliArgs) -> Result<(), GranmoModelError> {
@@ -4166,6 +4590,13 @@ fn handle_train(args: &CliArgs) -> Result<(), GranmoModelError> {
 
     let (engine, report) = run_single_experiment(&train_side, &test_side, &run_config)?;
     print_experiment_report(&args.preset_name, &report);
+
+    log_mispredictions_best_effort(
+        args.log_out.as_deref(),
+        data_path,
+        &args.preset_name,
+        &report,
+    );
 
     if let Some(model_path) = &args.model_out {
         let artifact = ModelArtifact {
@@ -4217,6 +4648,99 @@ fn handle_batch(args: &CliArgs) -> Result<(), GranmoModelError> {
     Ok(())
 }
 
+/*
+Alt version draft
+fn handle_predict(args: &CliArgs) -> Result<(), GranmoModelError> {
+    let model_path = args
+        .model_in
+        .as_ref()
+        .ok_or(GranmoModelError::CliMissingRequiredFlag)?;
+    let text = args
+        .predict_text
+        .as_ref()
+        .ok_or(GranmoModelError::CliMissingRequiredFlag)?;
+
+    let artifact = ModelArtifact::load_from_file(model_path)?;
+    let mut preprocessor = BytePreprocessor::new(artifact.preprocess_profile)?;
+    let processed = preprocessor.process_document(text.as_bytes())?;
+
+    let vote = artifact.engine.engine_vote_sum(&processed)?;
+    let lut = artifact.engine.engine_build_probability_lut()?;
+    let probability = lut.probability_for_report(vote)?;
+    let is_positive = vote > 0;
+
+    println!("\n============================================================");
+    println!("                    Single Text Inference                   ");
+    println!("============================================================");
+    println!("Input Text:        \"{}\"", text);
+    println!("Engine Model:      {}", artifact.engine.engine_name());
+    println!(
+        "Predicted Label:   {}",
+        if is_positive { "POSITIVE (1)" } else { "NEGATIVE (0)" }
+    );
+    println!("Signed Vote Sum:   {:+4} votes", vote);
+    println!("Calibrated Prob:   {:.2}%", probability * 100.0);
+    println!("------------------------------------------------------------");
+    println!("Triggered Logic Rules (Explainability Trace):");
+
+    let mut rules_printed = 0usize;
+    match &artifact.engine {
+        ClassifierEngine::ByteConv(conv_engine) => {
+            for clause in 0..conv_engine.conv_clause_count() {
+                if rules_printed >= 10 {
+                    break;
+                }
+                let positions = conv_engine.conv_fired_window_positions(clause, &processed)?;
+                if positions.is_empty() {
+                    continue;
+                }
+                let pattern = conv_engine.conv_describe_clause(clause, 12)?;
+                if pattern.is_empty() {
+                    continue;
+                }
+                let sign = if clause % 2 == 0 { "+ vote" } else { "- veto" };
+                println!(
+                    "  [Clause #{:<2} ({sign})] IF ( {} ) @ byte offsets {:?}",
+                    clause, pattern, positions
+                );
+                rules_printed += 1;
+            }
+        }
+        ClassifierEngine::ByteBag(bag_engine) => {
+            let fired_words = bag_engine.bag_fired_clause_bits(&processed)?;
+            for clause in 0..bag_engine.bag_clause_count() {
+                if rules_printed >= 10 {
+                    break;
+                }
+                let fired_word = fired_words
+                    .get(clause >> 6)
+                    .copied()
+                    .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+                if fired_word & (1u64 << (clause & 63)) == 0 {
+                    continue;
+                }
+                let pattern = bag_engine.bag_describe_clause(clause, 12)?;
+                if pattern.is_empty() {
+                    continue;
+                }
+                let sign = if clause % 2 == 0 { "+ vote" } else { "- veto" };
+                println!(
+                    "  [Clause #{:<2} ({sign})] IF ( {} )",
+                    clause, pattern
+                );
+                rules_printed += 1;
+            }
+        }
+    }
+
+    if rules_printed == 0 {
+        println!("  [No active specialized clauses fired; baseline vote applied]");
+    }
+
+    println!("============================================================\n");
+    Ok(())
+}
+*/
 fn handle_predict(args: &CliArgs) -> Result<(), GranmoModelError> {
     let model_path = args
         .model_in
@@ -4236,18 +4760,36 @@ fn handle_predict(args: &CliArgs) -> Result<(), GranmoModelError> {
     let vote = artifact.engine.engine_vote_sum(&processed)?;
     let lut = artifact.engine.engine_build_probability_lut()?;
     let probability = lut.probability_for_report(vote)?;
-    let label = vote > 0;
+    let label_is_positive = vote > 0;
 
-    println!("engine: {}", artifact.engine.engine_name());
+    // println!("engine: {}", artifact.engine.engine_name());
+    // println!(
+    //     "prediction: {}",
+    //     if label {
+    //         "POSITIVE (1)"
+    //     } else {
+    //         "NEGATIVE (0)"
+    //     }
+    // );
+    // println!("vote sum V = {vote}, probability {probability:.4}");
+
+    println!("\n============================================================");
+    println!("                    Single Text Inference                   ");
+    println!("============================================================");
+    println!("Input Text:        \"{}\"", text);
+    println!("Engine Model:      {}", artifact.engine.engine_name());
     println!(
-        "prediction: {}",
-        if label {
+        "Predicted Label:   {}",
+        if label_is_positive {
             "POSITIVE (1)"
         } else {
             "NEGATIVE (0)"
         }
     );
-    println!("vote sum V = {vote}, probability {probability:.4}");
+    println!("Signed Vote Sum:   {:+4} votes", vote);
+    println!("Calibrated Prob:   {:.2}%", probability * 100.0);
+    println!("------------------------------------------------------------");
+    println!("Triggered Logic Rules (Explainability Trace):");
 
     // Explainability trace — engine-specific by nature: the conv engine
     // reports byte-offset window spans (positional evidence); the bag has
@@ -7060,4 +7602,130 @@ mod tests {
             Some(GranmoModelError::CliUnknownEngine)
         );
     }
+
+    // --- Misprediction inspection log ---
+
+    /// `run_single_experiment` must populate `mispredictions` with exactly
+    /// the wrong-at-V>0 documents, carrying BOTH raw and preprocessed text.
+    /// Uses an untrained fresh model (epochs=0-equivalent via 1 epoch on a
+    /// single doc) where behavior is fully predictable: a fresh balanced
+    /// bank votes V=0 on everything, and V>0 is false, so every
+    /// positive-labeled test doc is a guaranteed misprediction.
+    #[test]
+    fn experiment_report_captures_mispredictions_with_both_text_forms() {
+        let train_docs = vec![LabeledDocument {
+            text: b"anything".to_vec(),
+            label_is_positive: false,
+        }];
+        let test_docs = vec![
+            LabeledDocument {
+                text: b"  POSITIVE Doc".to_vec(),
+                label_is_positive: true, // fresh model predicts 0 -> misprediction
+            },
+            LabeledDocument {
+                text: b"negative doc".to_vec(),
+                label_is_positive: false, // fresh model predicts 0 -> correct
+            },
+        ];
+        let config = HarnessRunConfig {
+            profile: PreprocessProfile::preset_p0(),
+            engine_selection: EngineSelection::ByteConv,
+            patch_size: 5,
+            stride: 2,
+            bag_ngram_len: 5,
+            bag_vocab_size: 100,
+            n_clauses: 4,
+            vote_threshold: 15,
+            states_per_action: 100,
+            specificity: 3.0,
+            max_scan_bytes: 256,
+            guarded_include: false,
+            epochs: 0, // no training: model stays fresh and vote stays 0
+            seed: 42,
+        };
+        let (_engine, report) = run_single_experiment(&train_docs, &test_docs, &config).unwrap();
+        assert_eq!(report.mispredictions.len(), 1);
+        let record = &report.mispredictions[0];
+        assert_eq!(record.raw_text_bytes, b"  POSITIVE Doc".to_vec());
+        // P0 = fold + dedupe + trim + lowercase.
+        assert_eq!(record.preprocessed_text_bytes, b"positive doc".to_vec());
+        assert!(record.actual_label_is_positive);
+        assert!(!record.predicted_label_is_positive);
+        assert_eq!(record.vote_sum_at_prediction, 0);
+    }
+
+    /// Append helper contract: empty input is a no-op (no file created);
+    /// non-empty input appends; a second call PRESERVES the first call's
+    /// lines (append mode); text separators are sanitized; relative paths
+    /// are rejected with the dedicated code.
+    #[test]
+    fn misprediction_log_append_contract() {
+        let log_path = temp_artifact_path("granmo_mispred_log_test.txt");
+        let _ = std::fs::remove_file(&log_path); // clean slate; ignore absence
+        let data_path = std::path::PathBuf::from("/data/example.jsonl");
+
+        // Empty: no-op, no file.
+        append_mispredictions_to_log(&log_path, &data_path, "p0", "byte-conv", &[]).unwrap();
+        assert!(!log_path.exists());
+
+        // Relative path: rejected.
+        assert_eq!(
+            append_mispredictions_to_log(
+                std::path::Path::new("relative/log.txt"),
+                &data_path,
+                "p0",
+                "byte-conv",
+                &[MispredictionRecord {
+                    raw_text_bytes: b"x".to_vec(),
+                    preprocessed_text_bytes: b"x".to_vec(),
+                    actual_label_is_positive: true,
+                    predicted_label_is_positive: false,
+                    vote_sum_at_prediction: -1,
+                }],
+            )
+            .err(),
+            Some(GranmoModelError::CliLogPathNotAbsolute)
+        );
+
+        // Two appends accumulate; embedded newline/tab sanitized to spaces.
+        let record = MispredictionRecord {
+            raw_text_bytes: b"line one\nline\ttwo".to_vec(),
+            preprocessed_text_bytes: b"line one line two".to_vec(),
+            actual_label_is_positive: true,
+            predicted_label_is_positive: false,
+            vote_sum_at_prediction: -3,
+        };
+        append_mispredictions_to_log(&log_path, &data_path, "p0", "byte-conv", &[record.clone()])
+            .unwrap();
+        append_mispredictions_to_log(&log_path, &data_path, "p2", "byte-bag", &[record]).unwrap();
+
+        let contents = std::fs::read_to_string(&log_path).unwrap();
+        let lines: Vec<&str> = contents.lines().collect();
+        assert_eq!(lines.len(), 2, "append mode must preserve prior records");
+        assert!(lines[0].contains("run=p0") && lines[0].contains("engine=byte-conv"));
+        assert!(lines[1].contains("run=p2") && lines[1].contains("engine=byte-bag"));
+        assert!(lines[0].contains("raw_text=\"line one line two\""));
+        assert!(lines[0].contains("actual=1") && lines[0].contains("pred=0"));
+        assert!(lines[0].contains("vote=-3"));
+    }
+
+    /// CLI: `--log-out` parses into `log_out`; absent flag defaults None.
+    #[test]
+    fn cli_parses_log_out_flag() {
+        let parsed = cli(&["--mode", "train", "--log-out", "/tmp/mispred.txt"]).unwrap();
+        assert_eq!(
+            parsed.log_out,
+            Some(std::path::PathBuf::from("/tmp/mispred.txt"))
+        );
+        assert!(cli(&["--mode", "train"]).unwrap().log_out.is_none());
+    }
+
+    /*
+    Test Note:
+    the `epochs: 0` test relies on `run_single_experiment` accepting
+    zero epochs (the loop `for _epoch in 0..config.epochs`
+    doesn't execute — it does today). If you ever add a `epochs >= 1`
+    validation, switch that test to a hand-forced clause construction
+    via `conv_test_force_include` instead.
+    */
 }
