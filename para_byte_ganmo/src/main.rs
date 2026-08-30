@@ -5088,7 +5088,7 @@ fn print_help() {
     println!("         (comparison matrix: presets raw,p0,p1,p2 x engines");
     println!("          byte-conv,byte-bag on ONE identical split and seed)");
     println!("PREDICT: --mode predict --model-in /abs/model.gmb --text \"...\"");
-    println!("Options (defaults):");
+    println!("Options (defaults) NOTE: '|' is a separator NOT 'or')");
     println!("  --text-key text | --label-key label | --positive-label 1");
     println!("  --preset p0 (raw|p0..p5) | --engine byte-conv (byte-conv|byte-bag)");
     println!("  --patch 5 | --stride 2 | --guarded          (byte-conv only)");
@@ -5096,9 +5096,17 @@ fn print_help() {
     println!("  --clauses 200 | --vote-threshold 50 | --states 100");
     println!("  --specificity 5.0 | --max-scan 1024 | --epochs 25 | --seed 42");
     println!("  --train-percent 80 | --model-out /abs/path.gmb");
-    println!("  --log-out /abs/path.txt  (misprediction inspection log; default: <exe_dir>/logs/)");
+    println!("  --log-out /abs/path.txt  (misprediction inspection log;");
+    println!("                   default: <exe_dir>/logs/))");
     println!("  --workers auto  (thread count; PERFORMANCE-ONLY — results are");
     println!("                   byte-identical at every worker count)");
+    println!("===================================================");
+    println!("  --preset -> optional cumulative levels of how much text preprocessing");
+    println!("p0. None");
+    println!("p1. **`WhitespaceFold`** (Stage 1): Converts all newline (`\n`), carriage return (`\r`), and tab (`\t`) bytes into spaces (`' '`).");
+    println!("p2. **`SpaceDedupe`** (Stage 2): Collapses consecutive runs of spaces down to a single space.");
+    println!("p3. **`LeadingTrim`** (Stage 3): Drops any leading spaces that occur before the first non-space byte.");
+    println!("p4. **`AsciiLowercase`** (Stage 4): Converts uppercase ASCII alphabetic bytes (`65` to `90`, or `'A'` through `'Z'`) to lowercase by adding `32`.");
 }
 
 /// Formats the S2-8 fire-rate diagnostic as one compact line: counts of

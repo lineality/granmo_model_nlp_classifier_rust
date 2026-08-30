@@ -1,5 +1,47 @@
 # Comparison 1: "It's... alive??"
 
+#### lite e.g.
+```bash
+cargo run --release --   --mode train   --train /home/oops/datasets/hate-speech-detection-curated-dataset/HateSpeechDatasetBalanced_quick.jsonl   --text-col text   --label-col label   --jsonl   --model-type flat   --model-path /home/ABC/models/HateSpeechDatasetBalancedv1.json   --epochs 5   --clauses 50   --threshold 50   --specificity 5   --max-features 100
+```
+
+# TRAIN (byte-conv only)
+```bash
+cargo run --release -- \
+--mode train --data /home/oops/datasets/hate-speech-detection-curated-dataset/HateSpeechDatasetBalanced_quick.jsonl \
+--text-key text  --label-key label  --positive-label 1 \
+--preset p3  --engine byte-conv \
+--patch 5  --stride 2  --guarded \
+--clauses 120  --vote-threshold 50  --states 100 \
+--specificity 5.0  --max-scan 1024  --epochs 5  --seed 42 \
+--train-percent 80  --model-out /home/oops/models/HateSpeechDatasetBalanced_quickbyte_conv_2.json \
+--log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/byte_conv_logout.txt \
+--workers auto
+```
+(misprediction inspection log; default: <exe_dir>/logs/)
+
+# TRAIN (byte-bag only)
+```bash
+cargo run --release -- \
+--mode train --data /home/oops/datasets/hate-speech-detection-curated-dataset/HateSpeechDatasetBalanced_quick.jsonl \
+--text-key text  --label-key label  --positive-label 1 \
+--preset p3  --engine byte-bag \
+--ngram-len 5  --vocab-size 4000 \
+--clauses 120  --vote-threshold 50  --states 100 \
+--specificity 5.0  --max-scan 1024  --epochs 5  --seed 42 \
+--train-percent 80  --model-out /home/oops/models/HateSpeechDatasetBalanced_quickbyte_bag_1.json \
+--log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/byte_bag_logout.txt \
+--workers auto
+```
+
+
+
+
+
+
+
+
+
 ## Test 1: Comparing performatizing: Byte-Convolusion Alpha Lite-Train vs. Beta-MVP-"Flat-Mode" Lite & Heavy Train
 
 ```bash
@@ -60,7 +102,7 @@ Splitting dataset (99990 total rows) into 80% train / 20% test...
                Classification Evaluation Report             
 ============================================================
   Evaluated Samples: 19998
-  Training Time:     437.22s
+  Training Time:     437.22s (19 min)
   Accuracy:        79.86%
   Macro Precision: 0.8490
   Macro Recall:    0.8048
@@ -128,6 +170,7 @@ not entirely comparable but closer:
 
 ```bash
 cargo run --release --   --mode train   --train /home/ABC/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl   --text-col text   --label-col label   --jsonl   --model-type flat   --model-path /home/ABC/models/Cyber_Bully_Data_binary_class-v5-slim-model.json   --epochs 5   --clauses 50   --threshold 50   --specificity 5   --max-features 100
+
     Finished `release` profile [optimized] target(s) in 0.01s
      Running `target/release/granmo_windowed_nlp --mode train --train /home/ABC/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl --text-col text --label-col label --jsonl --model-type flat --model-path /home/ABC/models/Cyber_Bully_Data_binary_class-v5-slim-model.json --epochs 5 --clauses 50 --threshold 50 --specificity 5 --max-features 100`
 Loading training dataset from: /home/ABC/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl
@@ -442,3 +485,396 @@ Clause Dynamics:
 ============================================================
 
 ```
+
+# New V2 Parallel Tests
+- expectedly faster times
+- unexpectedly higher %...
+
+```
+no-guard
+```
+$ cargo run --release -- --mode batch --data /home/ABC/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl --model-out /home/ABC/models/trash2 --clauses 200 --states 100 --specificity 5.0 --vocab-size 2000 --epochs 12
+    Finished `release` profile [optimized] target(s) in 0.00s
+     Running `target/release/para_byte_ganmo --mode batch --data /home/ABC/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl --model-out /home/ABC/models/trash2 --clauses 200 --states 100 --specificity 5.0 --vocab-size 2000 --epochs 12`
+batch over 79903 train / 19976 test documents, seed 42
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        raw          (Engine: byte-conv)
+  Train/Test Split:  79903/19976 samples
+  Training Time:     372.90s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 81.33%
+  Best-F1 Threshold:  V > -5
+  Precision:          0.8172
+  Recall:             0.8549
+  F1-Score:           0.8356
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    8074        1911        
+Actual Pos (1)    1450        8541        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 19976 test docs: never 16/200  always 16/200  p25 7.9%  median 12.1%  p75 15.9%
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        raw          (Engine: byte-bag)
+  Train/Test Split:  79903/19976 samples
+  Training Time:     219.44s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 96.98%
+  Best-F1 Threshold:  V > 0
+  Precision:          0.9837
+  Recall:             0.9554
+  F1-Score:           0.9693
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    9827        158         
+Actual Pos (1)    446         9545        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 19976 test docs: never 0/200  always 1/200  p25 12.9%  median 18.9%  p75 21.1%
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p0           (Engine: byte-conv)
+  Train/Test Split:  79903/19976 samples
+  Training Time:     367.72s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 80.15%
+  Best-F1 Threshold:  V > -1
+  Precision:          0.8021
+  Recall:             0.7955
+  F1-Score:           0.7988
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    8024        1961        
+Actual Pos (1)    2043        7948        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 19976 test docs: never 35/200  always 17/200  p25 0.6%  median 12.6%  p75 15.8%
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p0           (Engine: byte-bag)
+  Train/Test Split:  79903/19976 samples
+  Training Time:     205.93s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 97.84%
+  Best-F1 Threshold:  V > -1
+  Precision:          0.9887
+  Recall:             0.9733
+  F1-Score:           0.9809
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    9874        111         
+Actual Pos (1)    267         9724        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 19976 test docs: never 0/200  always 2/200  p25 12.9%  median 17.3%  p75 20.2%
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p1           (Engine: byte-conv)
+  Train/Test Split:  79903/19976 samples
+  Training Time:     368.61s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 78.64%
+  Best-F1 Threshold:  V > 2
+  Precision:          0.8094
+  Recall:             0.8069
+  F1-Score:           0.8082
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    8087        1898        
+Actual Pos (1)    1929        8062        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 19976 test docs: never 26/200  always 11/200  p25 0.8%  median 12.1%  p75 15.6%
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p1           (Engine: byte-bag)
+  Train/Test Split:  79903/19976 samples
+  Training Time:     212.57s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 96.44%
+  Best-F1 Threshold:  V > -1
+  Precision:          0.9878
+  Recall:             0.9512
+  F1-Score:           0.9691
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    9868        117         
+Actual Pos (1)    488         9503        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 19976 test docs: never 0/200  always 1/200  p25 12.9%  median 19.2%  p75 20.8%
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p2           (Engine: byte-conv)
+  Train/Test Split:  79903/19976 samples
+  Training Time:     369.40s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 80.23%
+  Best-F1 Threshold:  V > -2
+  Precision:          0.8145
+  Recall:             0.7909
+  F1-Score:           0.8025
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    8185        1800        
+Actual Pos (1)    2089        7902        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 19976 test docs: never 40/200  always 15/200  p25 0.3%  median 12.5%  p75 15.9%
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p2           (Engine: byte-bag)
+  Train/Test Split:  79903/19976 samples
+  Training Time:     207.09s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 92.98%
+  Best-F1 Threshold:  V > -3
+  Precision:          0.9874
+  Recall:             0.9751
+  F1-Score:           0.9812
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    9861        124         
+Actual Pos (1)    249         9742        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 19976 test docs: never 0/200  always 0/200  p25 12.9%  median 17.3%  p75 20.6%
+============================================================
+
+```
+
+
+
+OK, and with the parallel version, somehow byte-flat did better:
+```
+$ cargo run --release -- --mode batch --data /home/ABC/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl --model-out /home/ABC/models/trash2 --clauses 200 --states 100 --specificity 5.0 --vocab-size 2000 --epochs 12 --guarded
+    Finished `release` profile [optimized] target(s) in 0.00s
+     Running `target/release/byte_convolution_series_teamgames --mode batch --data /home/ABC/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl --model-out /home/ABC/models/trash2 --clauses 200 --states 100 --specificity 5.0 --vocab-size 2000 --epochs 12 --guarded`
+batch over 79903 train / 19976 test documents, seed 42
+   Compiling para_byte_ganmo v0.1.0 (/home/ABC/code/granmo_model_nlp_classifier_rust/para_byte_ganmo)
+    Finished `release` profile [optimized] target(s) in 1.59s
+     Running `target/release/para_byte_ganmo --mode batch --data /home/ABC/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl --model-out /home/ABC/models/trash2 --clauses 200 --states 100 --specificity 5.0 --vocab-size 2000 --epochs 12 --guarded`
+batch over 79903 train / 19976 test documents, seed 42
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        raw          (Engine: byte-conv)
+  Train/Test Split:  79903/19976 samples
+  Training Time:     359.72s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 80.57%
+  Best-F1 Threshold:  V > 1
+  Precision:          0.7907
+  Recall:             0.8560
+  F1-Score:           0.8220
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    7721        2264        
+Actual Pos (1)    1439        8552        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 19976 test docs: never 19/200  always 9/200  p25 7.7%  median 12.7%  p75 16.0%
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        raw          (Engine: byte-bag)
+  Train/Test Split:  79903/19976 samples
+  Training Time:     212.00s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 96.98%
+  Best-F1 Threshold:  V > 0
+  Precision:          0.9837
+  Recall:             0.9554
+  F1-Score:           0.9693
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    9827        158         
+Actual Pos (1)    446         9545        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 19976 test docs: never 0/200  always 1/200  p25 12.9%  median 18.9%  p75 21.1%
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p0           (Engine: byte-conv)
+  Train/Test Split:  79903/19976 samples
+  Training Time:     364.95s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 81.00%
+  Best-F1 Threshold:  V > -1
+  Precision:          0.8194
+  Recall:             0.7843
+  F1-Score:           0.8015
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    8258        1727        
+Actual Pos (1)    2155        7836        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 19976 test docs: never 30/200  always 15/200  p25 1.5%  median 12.7%  p75 15.8%
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p0           (Engine: byte-bag)
+  Train/Test Split:  79903/19976 samples
+  Training Time:     209.97s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 97.84%
+  Best-F1 Threshold:  V > -1
+  Precision:          0.9887
+  Recall:             0.9733
+  F1-Score:           0.9809
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    9874        111         
+Actual Pos (1)    267         9724        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 19976 test docs: never 0/200  always 2/200  p25 12.9%  median 17.3%  p75 20.2%
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p1           (Engine: byte-conv)
+  Train/Test Split:  79903/19976 samples
+  Training Time:     373.45s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 82.45%
+  Best-F1 Threshold:  V > -3
+  Precision:          0.8407
+  Recall:             0.8161
+  F1-Score:           0.8282
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    8440        1545        
+Actual Pos (1)    1837        8154        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 19976 test docs: never 24/200  always 11/200  p25 3.1%  median 13.2%  p75 15.1%
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p1           (Engine: byte-bag)
+  Train/Test Split:  79903/19976 samples
+  Training Time:     213.00s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 96.44%
+  Best-F1 Threshold:  V > -1
+  Precision:          0.9878
+  Recall:             0.9512
+  F1-Score:           0.9691
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    9868        117         
+Actual Pos (1)    488         9503        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 19976 test docs: never 0/200  always 1/200  p25 12.9%  median 19.2%  p75 20.8%
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p2           (Engine: byte-conv)
+  Train/Test Split:  79903/19976 samples
+  Training Time:     369.37s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 79.44%
+  Best-F1 Threshold:  V > -2
+  Precision:          0.7678
+  Recall:             0.8219
+  F1-Score:           0.7940
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    7502        2483        
+Actual Pos (1)    1779        8212        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 19976 test docs: never 29/200  always 9/200  p25 0.5%  median 12.4%  p75 15.4%
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p2           (Engine: byte-bag)
+  Train/Test Split:  79903/19976 samples
+  Training Time:     202.81s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 92.98%
+  Best-F1 Threshold:  V > -3
+  Precision:          0.9874
+  Recall:             0.9751
+  F1-Score:           0.9812
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    9861        124         
+Actual Pos (1)    249         9742        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 19976 test docs: never 0/200  always 0/200  p25 12.9%  median 17.3%  p75 20.6%
+============================================================
