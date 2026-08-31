@@ -106,6 +106,15 @@ pub enum GranmoModelError {
     CfgVocabSizeOutOfBounds = 317,
     /// `VocabSize` revalidation on `.get()` failed (corruption).
     CfgVocabSizeRecheckCorrupt = 318,
+    /// `FireGuardStreakLimit` value outside supported bounds at
+    /// construction: must be 0 (guard disabled) or within the active
+    /// range. Sub-minimum active values (1..=15) are rejected as
+    /// almost-certainly-typos — a limit of 1 would recycle every clause
+    /// on its first specialized fire.
+    CfgFireGuardLimitOutOfBounds = 319,
+    /// `FireGuardStreakLimit` revalidation on `.get()` failed
+    /// (post-construction corruption).
+    CfgFireGuardLimitRecheckCorrupt = 320,
     // --- 400–499: ByteConvTM engine ---
     /// Stride exceeds patch size at engine construction (windows would skip
     /// bytes entirely — no valid configuration does this).
@@ -270,6 +279,11 @@ pub enum GranmoModelError {
     /// with recomputation from raw automaton states
     /// (`bag_validate_internal_consistency`). Mirrors 402.
     BbgIncludeMaskInconsistent = 907,
+    /// A fire-guard streak or reset-count storage index fell outside its
+    /// backing storage, or guard storage geometry disagrees with the
+    /// clause count. Internal-invariant violation: unreachable unless
+    /// engine state is corrupt. Mirrors 904 for the engine proper.
+    BbgFireGuardIndexOutOfRange = 908,
 
     // --- 1000–1099: Shared engine training math (`Trn*`) — helpers used
     //     identically by every engine (feedback gates, etc.). ---
@@ -323,6 +337,9 @@ impl GranmoModelError {
 
             // False Arm
             Self::PpProfileReservedBitsSet
+            | Self::CfgFireGuardLimitOutOfBounds
+            | Self::CfgFireGuardLimitRecheckCorrupt
+            | Self::BbgFireGuardIndexOutOfRange
             | Self::CliLogPathNotAbsolute
             | Self::PpProfileRecheckCorrupt
             | Self::ParWorkerCountOutOfBounds
@@ -617,6 +634,70 @@ impl VocabSize {
     pub fn get(&self) -> Result<u16, GranmoModelError> {
         if self.value < Self::MIN || self.value > Self::MAX {
             return Err(GranmoModelError::CfgVocabSizeRecheckCorrupt);
+        }
+        Ok(self.value)
+    }
+}
+
+/// Consecutive-fire streak limit for the training-time always-fire guard
+/// (ByteBag engine, Drop 4.1; conv port is recorded backlog).
+///
+/// ## Semantics
+/// - `0` = guard DISABLED — the recorded-baseline default. The guard is
+///   an ablation arm (like the conv engine's GuardedInclude flag): it is
+///   never silently on, so every recorded baseline row stays comparable
+///   across sessions.
+/// - An active value `L` means: a clause that fires on `L` CONSECUTIVE
+///   shuffled training documents, while non-vacuous (holding at least one
+///   included literal), is judged pathologically always-firing and is
+///   reset to fresh state (prune-and-respawn). Because the harness
+///   re-shuffles training order every epoch, `L` consecutive fires is a
+///   representative corpus sample.
+///
+/// ## Why a minimum active value exists
+/// A tiny limit (e.g. 1) would reset every clause the moment it first
+/// fires with a learned pattern — catastrophic, and almost certainly a
+/// typo rather than an experiment. The floor forces the guard to observe
+/// at least a modest consecutive sample before condemning a clause.
+///
+/// ## Ephemerality (design record)
+/// This value and the per-clause streak state it governs are TRAINING
+/// SESSION state: deliberately NOT persisted in artifact kind 3. Loaded
+/// models resume training guard-off unless reconstructed with a limit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FireGuardStreakLimit {
+    value: u32,
+}
+
+impl FireGuardStreakLimit {
+    /// Sentinel: guard disabled (the default of record).
+    pub const DISABLED: u32 = 0;
+    /// Smallest permitted ACTIVE limit (see doc block for rationale).
+    pub const MIN_ACTIVE: u32 = 16;
+    /// Largest permitted ACTIVE limit (sanity cap: beyond any real
+    /// train-split size this crate targets; larger values are typos).
+    pub const MAX_ACTIVE: u32 = 16_777_216;
+
+    pub fn new(value: u32) -> Result<Self, GranmoModelError> {
+        if value != Self::DISABLED && (value < Self::MIN_ACTIVE || value > Self::MAX_ACTIVE) {
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "CFG-319: FireGuardStreakLimit {} must be 0 (disabled) or in {}..={}",
+                value,
+                Self::MIN_ACTIVE,
+                Self::MAX_ACTIVE
+            );
+            return Err(GranmoModelError::CfgFireGuardLimitOutOfBounds);
+        }
+        Ok(Self { value })
+    }
+
+    /// Revalidating accessor (catches post-construction corruption).
+    pub fn get(&self) -> Result<u32, GranmoModelError> {
+        if self.value != Self::DISABLED
+            && (self.value < Self::MIN_ACTIVE || self.value > Self::MAX_ACTIVE)
+        {
+            return Err(GranmoModelError::CfgFireGuardLimitRecheckCorrupt);
         }
         Ok(self.value)
     }
@@ -2744,6 +2825,18 @@ impl ClassifierEngine {
         }
     }
 
+    /// Total training-time fire-guard resets (telemetry; Drop 4.1).
+    /// The conv engine has no guard yet and reports 0 — the identical
+    /// pattern ports to `ConvClauseWorkView` later (recorded backlog:
+    /// conv vacuity test = zero includes across all slots, readable from
+    /// `positive_include_counts` plus the negated-literal states).
+    pub fn engine_fire_guard_reset_total(&self) -> u64 {
+        match self {
+            Self::ByteConv(_conv_engine) => 0,
+            Self::ByteBag(bag_engine) => bag_engine.bag_fire_guard_reset_total(),
+        }
+    }
+
     /// Probability LUT matched to this engine's clause count and T.
     pub fn engine_build_probability_lut(&self) -> Result<ProbabilityLut, GranmoModelError> {
         match self {
@@ -3378,6 +3471,11 @@ fn read_byte_bag_full_body(cursor: &mut ByteCursor<'_>) -> Result<ByteBagTM, Gra
         ByteBagVocabulary::from_flat_bytes(ngram_len, vocabulary_flat_slice.to_vec())?;
 
     // Engine shell from validated header values, then state overwrite.
+    // Fire guard: DISABLED by design — guard limit, streaks, and reset
+    // counters are ephemeral training-session state and are deliberately
+    // not part of artifact kind 3 (Drop 4.1 decision of record). A loaded
+    // model resumes training guard-off unless the caller reconstructs it
+    // with an active limit.
     let mut bag_engine = ByteBagTM::new_with_vocabulary(
         restored_vocabulary,
         clause_count,
@@ -3385,7 +3483,9 @@ fn read_byte_bag_full_body(cursor: &mut ByteCursor<'_>) -> Result<ByteBagTM, Gra
         automaton_depth,
         specificity,
         scan_cap,
+        FireGuardStreakLimit::new(FireGuardStreakLimit::DISABLED)?,
     )?;
+
     let expected_state_count = bag_engine.bag_ta_states.len();
     let state_bytes = cursor.take(
         expected_state_count
@@ -4164,6 +4264,14 @@ pub struct HarnessRunConfig {
     pub specificity: f64,
     pub max_scan_bytes: u32,
     pub guarded_include: bool,
+    /// Training-time always-fire guard limit (Drop 4.1): 0 = disabled
+    /// (recorded-baseline default); active values reset a byte-bag clause
+    /// that fires on this many CONSECUTIVE shuffled training documents
+    /// while non-vacuous. Applies ONLY to the ByteBag engine; carried but
+    /// ignored for ByteConv (same one-config-describes-any-run posture as
+    /// `patch_size` for the bag). Validated through
+    /// `FireGuardStreakLimit` at the engine-construction boundary.
+    pub fire_guard_streak_limit: u32,
     pub epochs: u32,
     pub seed: u64,
     /// Worker threads for clause-parallel training and document-parallel
@@ -4194,6 +4302,15 @@ pub struct ExperimentReport {
     /// vote-imbalance risk and for deciding whether the CoTM clause-weight
     /// arm gets pulled forward.
     pub clause_fire_counts: Vec<u32>,
+
+    /// Total fire-guard resets performed during training (Drop 4.1) —
+    /// the guard's ACTIVITY instrument. Read TOGETHER with the fire-rate
+    /// report's "always" count (the OUTCOME instrument): many resets with
+    /// an unchanged always-count means clauses re-converge to the same
+    /// ubiquitous patterns, which argues for a vocabulary-side fix
+    /// (frequency capping) rather than more guarding. Always 0 for the
+    /// conv engine and whenever the guard is disabled.
+    pub fire_guard_reset_total: u64,
     /// Test documents misclassified at the default threshold V > 0,
     /// captured for the misprediction inspection log. Pairs raw and
     /// preprocessed text so label errors AND preprocessing artifacts are
@@ -4643,6 +4760,7 @@ pub fn run_single_experiment(
                 StatesPerAction::new(config.states_per_action)?,
                 SpecificityThresholds::from_specificity(config.specificity)?,
                 MaxScanBytes::new(config.max_scan_bytes)?,
+                FireGuardStreakLimit::new(config.fire_guard_streak_limit)?,
             )?)
         }
     };
@@ -4816,6 +4934,7 @@ pub fn run_single_experiment(
         best_f1_row,
         train_seconds,
         clause_fire_counts,
+        fire_guard_reset_total: engine.engine_fire_guard_reset_total(),
         mispredictions,
     };
     Ok((engine, report))
@@ -4847,6 +4966,10 @@ struct CliArgs {
     specificity: f64,
     max_scan_bytes: u32,
     guarded_include: bool,
+    /// `--fire-guard` value: 0 = disabled (default). Validated through
+    /// `FireGuardStreakLimit` in `to_run_config` (fail-fast at the CLI
+    /// boundary, per crate policy).
+    fire_guard_streak_limit: u32,
     epochs: u32,
     seed: u64,
     train_percent: u8,
@@ -4928,6 +5051,7 @@ impl CliArgs {
             specificity: 5.0,
             max_scan_bytes: 1024,
             guarded_include: false,
+            fire_guard_streak_limit: 0,
             epochs: 5, // default for quick test: moderate/normal: 25
             seed: 42,
             train_percent: 80,
@@ -5006,6 +5130,10 @@ impl CliArgs {
                         parse_flag_number(flag, take_value(args, &mut i, flag)?)?
                 }
                 "--guarded" => parsed.guarded_include = true,
+                "--fire-guard" => {
+                    parsed.fire_guard_streak_limit =
+                        parse_flag_number(flag, take_value(args, &mut i, flag)?)?
+                }
                 "--epochs" => {
                     parsed.epochs = parse_flag_number(flag, take_value(args, &mut i, flag)?)?
                 }
@@ -5063,6 +5191,11 @@ impl CliArgs {
             specificity: self.specificity,
             max_scan_bytes: self.max_scan_bytes,
             guarded_include: self.guarded_include,
+            // Validate through the enforced newtype so an out-of-range
+            // --fire-guard fails fast at the CLI boundary, then carry the
+            // validated raw value (revalidated again at engine wiring).
+            fire_guard_streak_limit: FireGuardStreakLimit::new(self.fire_guard_streak_limit)?
+                .get()?,
             epochs: self.epochs,
             seed: self.seed,
             worker_count: {
@@ -5093,6 +5226,10 @@ fn print_help() {
     println!("  --preset p0 (raw|p0..p5) | --engine byte-conv (byte-conv|byte-bag)");
     println!("  --patch 5 | --stride 2 | --guarded          (byte-conv only)");
     println!("  --ngram-len 5 | --vocab-size 4000           (byte-bag only)");
+    println!("  --fire-guard 0  (byte-bag only; 0=off; active 16..=16777216:");
+    println!("                   reset any clause that fires on N consecutive");
+    println!("                   shuffled training docs while holding a learned");
+    println!("                   pattern — always-fire pruning, Drop 4.1)");
     println!("  --clauses 200 | --vote-threshold 50 | --states 100");
     println!("  --specificity 5.0 | --max-scan 1024 | --epochs 25 | --seed 42");
     println!("  --train-percent 80 | --model-out /abs/path.gmb");
@@ -5103,10 +5240,18 @@ fn print_help() {
     println!("===================================================");
     println!("  --preset -> optional cumulative levels of how much text preprocessing");
     println!("p0. None");
-    println!("p1. **`WhitespaceFold`** (Stage 1): Converts all newline (`\n`), carriage return (`\r`), and tab (`\t`) bytes into spaces (`' '`).");
-    println!("p2. **`SpaceDedupe`** (Stage 2): Collapses consecutive runs of spaces down to a single space.");
-    println!("p3. **`LeadingTrim`** (Stage 3): Drops any leading spaces that occur before the first non-space byte.");
-    println!("p4. **`AsciiLowercase`** (Stage 4): Converts uppercase ASCII alphabetic bytes (`65` to `90`, or `'A'` through `'Z'`) to lowercase by adding `32`.");
+    println!(
+        "p1. **`WhitespaceFold`** (Stage 1): Converts all newline (`\n`), carriage return (`\r`), and tab (`\t`) bytes into spaces (`' '`)."
+    );
+    println!(
+        "p2. **`SpaceDedupe`** (Stage 2): Collapses consecutive runs of spaces down to a single space."
+    );
+    println!(
+        "p3. **`LeadingTrim`** (Stage 3): Drops any leading spaces that occur before the first non-space byte."
+    );
+    println!(
+        "p4. **`AsciiLowercase`** (Stage 4): Converts uppercase ASCII alphabetic bytes (`65` to `90`, or `'A'` through `'Z'`) to lowercase by adding `32`."
+    );
 }
 
 /// Formats the S2-8 fire-rate diagnostic as one compact line: counts of
@@ -5218,6 +5363,12 @@ fn print_experiment_report(run_label: &str, report: &ExperimentReport) {
         "  {}",
         summarize_fire_counts(&report.clause_fire_counts, report.test_count)
     );
+    if report.fire_guard_reset_total > 0 {
+        println!(
+            "  fire-guard resets during training: {} (clauses recycled to fresh state)",
+            report.fire_guard_reset_total
+        );
+    }
     println!("============================================================\n");
 }
 
@@ -5347,7 +5498,17 @@ fn handle_train(args: &CliArgs) -> Result<(), GranmoModelError> {
     let run_config = args.to_run_config()?;
 
     // Echo the resolved config (locked decision §10.9: training echoes it).
+    // (per the recorded fail-fast/no-silent-ignores philosophy — the --model-out-in-batch bug class)
     println!("resolved config: {:?}", run_config);
+
+    if run_config.fire_guard_streak_limit != FireGuardStreakLimit::DISABLED
+        && run_config.engine_selection == EngineSelection::ByteConv
+    {
+        println!(
+            "note: --fire-guard applies to the byte-bag engine only; \
+                 it is ignored for byte-conv this run (conv port is recorded backlog)"
+        );
+    }
 
     let (engine, report) = run_single_experiment(&train_side, &test_side, &run_config)?;
     print_experiment_report(&args.preset_name, &report);
@@ -5370,12 +5531,24 @@ fn handle_train(args: &CliArgs) -> Result<(), GranmoModelError> {
     Ok(())
 }
 
-/// Batch mode — the §8 comparison-matrix command: the priority presets
-/// (raw, P0, P1, P2) × BOTH engines, on ONE identical split with ONE
-/// identical training seed. Eight runs whose rows differ only in the two
-/// labeled variables (preprocessing preset, engine) — the controlled
-/// comparison that §8's success criteria and the S2-7 three-way diagnostic
-/// are judged on.
+/// Batch mode 2.0 — the §8 comparison-matrix command, now in two blocks:
+///
+/// MATRIX 1 (recorded baseline, unchanged from batch 1.0): the priority
+/// presets (raw, P0, P1, P2) × BOTH engines, on ONE identical split with
+/// ONE identical training seed, with the fire guard FORCED OFF for every
+/// row — even when `--fire-guard` was supplied. This keeps every baseline
+/// row byte-comparable with all previously recorded batch results.
+///
+/// MATRIX 2 (Drop 4.1 guard arms): runs ONLY when `--fire-guard` is
+/// active. One additional byte-bag row per preset with the guard ON,
+/// labeled `<preset>+fireguard`. Each guard row differs from its Matrix-1
+/// byte-bag counterpart in EXACTLY one variable (the guard), on the same
+/// split and seed — the single-variable comparison the guard experiment
+/// is judged on. Reading guide: compare (a) the fire-rate "always" count
+/// (outcome), (b) the fire-guard reset total (activity), and (c) best-F1,
+/// guard row vs. baseline row. Guard rows deliberately run the BAG only:
+/// the conv engine has no guard yet, and a conv "guard row" would be an
+/// unlabeled duplicate of its baseline row.
 fn handle_batch(args: &CliArgs) -> Result<(), GranmoModelError> {
     let data_path = args
         .data_path
@@ -5395,15 +5568,38 @@ fn handle_batch(args: &CliArgs) -> Result<(), GranmoModelError> {
         test_side.len(),
         args.seed
     );
+    if args.fire_guard_streak_limit != FireGuardStreakLimit::DISABLED {
+        println!(
+            "fire-guard arms enabled (limit {}): baseline matrix runs guard-OFF; \
+             byte-bag guard-ON rows follow as '<preset>+fireguard'",
+            args.fire_guard_streak_limit
+        );
+    }
 
+    // --- MATRIX 1: baseline (guard unconditionally OFF) ---
     for preset_name in ["raw", "p0", "p1", "p2"] {
         for engine_selection_choice in [EngineSelection::ByteConv, EngineSelection::ByteBag] {
             let mut run_config = args.to_run_config()?;
             run_config.profile = preset_from_name(preset_name)?;
             run_config.engine_selection = engine_selection_choice;
+            run_config.fire_guard_streak_limit = FireGuardStreakLimit::DISABLED;
             let (_trained_engine, report) =
                 run_single_experiment(&train_side, &test_side, &run_config)?;
             print_experiment_report(preset_name, &report);
+        }
+    }
+
+    // --- MATRIX 2: byte-bag guard arms (only when --fire-guard active) ---
+    if args.fire_guard_streak_limit != FireGuardStreakLimit::DISABLED {
+        for preset_name in ["raw", "p0", "p1", "p2"] {
+            let mut run_config = args.to_run_config()?;
+            run_config.profile = preset_from_name(preset_name)?;
+            run_config.engine_selection = EngineSelection::ByteBag;
+            // to_run_config already validated and carried the active limit.
+            let (_trained_engine, report) =
+                run_single_experiment(&train_side, &test_side, &run_config)?;
+            let guard_run_label = format!("{preset_name}+fireguard");
+            print_experiment_report(&guard_run_label, &report);
         }
     }
     Ok(())
@@ -5989,12 +6185,33 @@ pub struct ByteBagTM {
     /// Negated-include masks, same layout: bit r set iff negated literal
     /// (M + r) is included.
     bag_negated_include_masks: Vec<u64>,
+    /// Training-time always-fire guard: consecutive-fire streak limit,
+    /// 0 = disabled (the recorded-baseline default). EPHEMERAL training
+    /// configuration — deliberately NOT persisted in artifact kind 3;
+    /// the kind-3 reader constructs loaded engines with the guard
+    /// disabled (recorded design decision, Drop 4.1).
+    bag_fire_guard_limit: u32,
+    /// Per-clause consecutive-fire streaks (guard state). Incremented
+    /// only while a clause is both firing AND non-vacuous; reset to zero
+    /// on any non-fire, on vacuity, and on a guard reset. EPHEMERAL —
+    /// zeroed at construction and at artifact load, never persisted.
+    bag_fire_streaks: Vec<u32>,
+    /// Per-clause count of guard resets performed during this training
+    /// session (run-report telemetry: the guard's ACTIVITY instrument,
+    /// complementing the eval-time fire-rate report's OUTCOME
+    /// instrument). EPHEMERAL — never persisted.
+    bag_fire_guard_reset_counts: Vec<u32>,
 }
 
-/// Exclusive mutable access to ONE ByteBag clause's automaton states and
-/// its two include-mask word ranges. Same disjointness argument as
-/// `ConvClauseWorkView`: clause c owns `bag_ta_states[c*2M..(c+1)*2M]` and
-/// mask words `[c*W..(c+1)*W]` in both mask arrays, and nothing else.
+/// Exclusive mutable access to ONE ByteBag clause's automaton states,
+/// its two include-mask word ranges, and (Drop 4.1) its fire-guard
+/// streak and reset-count slots. Same disjointness argument as
+/// `ConvClauseWorkView`: clause c owns `bag_ta_states[c*2M..(c+1)*2M]`,
+/// mask words `[c*W..(c+1)*W]` in both mask arrays, and exactly one slot
+/// in each guard vector — and nothing else. The borrow checker proves
+/// these ranges disjoint via the zipped-`chunks_mut`/`iter_mut`
+/// construction, which is what permits handing contiguous view ranges to
+/// different threads with no `unsafe`, no locks, and no atomics.
 /// Indices are LOCAL to the clause (`0..2M`).
 pub struct BagClauseWorkView<'engine> {
     clause_index: usize,
@@ -6002,9 +6219,17 @@ pub struct BagClauseWorkView<'engine> {
     depth_n: i16,
     forget_threshold: u16,
     reinforce_threshold: u16,
+    /// Always-fire guard limit (0 = disabled). Engine-level scalar today;
+    /// under a future TeamCompositionPalette this becomes a per-clause
+    /// property through the same snapshot seam as depth and specificity.
+    fire_guard_limit: u32,
     states: &'engine mut [i16],
     positive_mask_words: &'engine mut [u64],
     negated_mask_words: &'engine mut [u64],
+    /// This clause's consecutive-fire streak (guard state; Drop 4.1).
+    fire_streak: &'engine mut u32,
+    /// This clause's guard-reset telemetry counter (Drop 4.1).
+    fire_guard_reset_count: &'engine mut u32,
 }
 
 impl<'engine> BagClauseWorkView<'engine> {
@@ -6117,6 +6342,96 @@ impl<'engine> BagClauseWorkView<'engine> {
         Ok(())
     }
 
+    /// True iff this clause has at least one included literal in EITHER
+    /// include mask — the non-vacuous test for the fire guard.
+    ///
+    /// A vacuous clause (zero includes) fires everywhere BY CONSTRUCTION:
+    /// that is the bootstrap state every clause starts in and passes
+    /// through while Type Ia feedback specializes it. Vacuous clauses are
+    /// therefore EXEMPT from the guard — resetting one would be a no-op
+    /// cycle, and counting its fires would recycle every fresh clause at
+    /// exactly `limit` steps. Cost: an OR-scan over ~ceil(M/64) words with
+    /// early exit (typically the first word is nonzero for any clause
+    /// with includes) — negligible against the feedback pass's O(2M).
+    fn view_bag_has_any_include(&self) -> bool {
+        self.positive_mask_words.iter().any(|&word| word != 0)
+            || self.negated_mask_words.iter().any(|&word| word != 0)
+    }
+
+    /// Resets this clause to FRESH state: every automaton at the exclude
+    /// boundary (state == N), both include masks zeroed — byte-identical
+    /// to the constructor's fresh invariant, so
+    /// `bag_validate_internal_consistency` passes by construction after a
+    /// reset. Consumes ZERO RNG (part of the determinism contract: guard
+    /// activity never shifts any stochastic stream).
+    ///
+    /// This is the "prune-and-respawn" action of record (Drop 4.1):
+    /// the clause slot is reclaimed for re-specialization rather than
+    /// removed (removal would change bank geometry, polarity balance,
+    /// LUT sizing, and the artifact format) or frozen (which would waste
+    /// the slot permanently and complicate voting).
+    fn view_bag_reset_clause_to_fresh(&mut self) -> Result<(), GranmoModelError> {
+        for state_slot in self.states.iter_mut() {
+            *state_slot = self.depth_n;
+        }
+        for word in self.positive_mask_words.iter_mut() {
+            *word = 0;
+        }
+        for word in self.negated_mask_words.iter_mut() {
+            *word = 0;
+        }
+        Ok(())
+    }
+
+    /// The always-fire guard (Drop 4.1): updates this clause's
+    /// consecutive-fire streak from this step's pass-1 fired flag and, if
+    /// the active limit is reached, resets the clause to fresh state.
+    /// Returns `Ok(true)` iff a reset occurred — the caller skips
+    /// feedback for this clause this step (the recycled clause starts its
+    /// next step clean, receiving normal Type Ia bootstrap from then on).
+    ///
+    /// ## Streak rule (specification of record)
+    /// - increments ONLY when `fired == true` AND the clause is
+    ///   non-vacuous (see `view_bag_has_any_include`);
+    /// - resets to 0 on any non-fire OR on vacuity.
+    /// Because the harness re-shuffles training order every epoch,
+    /// `limit` consecutive fires is a representative corpus sample: the
+    /// guard condemns exactly the pathological case — a clause whose
+    /// LEARNED pattern is ubiquitous (vote offset / dead capacity, per
+    /// the recorded batch findings of 23–48 always-firing clauses per 600
+    /// persisting through 12 epochs).
+    ///
+    /// ## Contract notes
+    /// - Consumes zero RNG; with `fire_guard_limit == DISABLED` this
+    ///   method short-circuits before touching ANY state, so the
+    ///   guard-disabled build is byte-identical to the pre-guard build.
+    /// - Runs exactly once per clause per training step inside the
+    ///   disjoint clause views, so worker-count invariance holds by the
+    ///   same argument as all other clause state.
+    fn view_bag_apply_fire_guard(&mut self, fired: bool) -> Result<bool, GranmoModelError> {
+        if self.fire_guard_limit == FireGuardStreakLimit::DISABLED {
+            return Ok(false); // guard off: structurally zero behavioral delta
+        }
+        if fired && self.view_bag_has_any_include() {
+            *self.fire_streak = self
+                .fire_streak
+                .checked_add(1)
+                .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+        } else {
+            *self.fire_streak = 0;
+        }
+        if *self.fire_streak >= self.fire_guard_limit {
+            self.view_bag_reset_clause_to_fresh()?;
+            *self.fire_streak = 0;
+            // Telemetry: saturating by design — a counter that has hit
+            // u32::MAX has long since made its diagnostic point, and
+            // saturation cannot panic or corrupt (documented posture).
+            *self.fire_guard_reset_count = self.fire_guard_reset_count.saturating_add(1);
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
     /// Type Ia: flat semantics — true literals reinforce, false literals
     /// decay. Draw ORDER unchanged from the pre-parallel implementation.
     fn view_bag_apply_type_ia(
@@ -6206,6 +6521,24 @@ fn bag_apply_feedback_to_view_range(
         let fired = *fired_flags
             .get(clause)
             .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+
+        /*
+        Placement rationale (recorded): the fired flag was computed
+        in pass 1 against the pre-reset masks — that observation
+        is precisely what condemns the clause. Skipping the gate
+        draw for a reset clause is deterministic (the per-clause
+        stream is re-derived from (step, clause, purpose) next step,
+        so there is no cross-step stream drift).
+        */
+        // Always-fire guard: checked BEFORE the gate draw. A
+        // reset consumes no RNG and skips feedback this step, so with the
+        // guard disabled this call is a structural no-op and the build is
+        // byte-identical to the pre-guard build. Runs exactly once per
+        // clause per step regardless of worker count (disjoint views).
+        if view.view_bag_apply_fire_guard(fired)? {
+            continue;
+        }
+
         let positive_polarity = clause % 2 == 0;
 
         let (gate, receives_type_i) = if label_is_positive {
@@ -6247,6 +6580,12 @@ impl ByteBagTM {
     /// revalidated here (value-integrity rule) so a corrupt vocabulary
     /// cannot silently configure a mis-sized engine.
     ///
+    /// `fire_guard_limit` (Drop 4.1) configures the training-time
+    /// always-fire guard; `FireGuardStreakLimit::DISABLED` preserves the
+    /// pre-guard behavior byte-for-byte (the guard consumes no RNG and
+    /// short-circuits before touching any state). Guard state is
+    /// ephemeral and never persisted; the artifact reader passes DISABLED.
+    ///
     /// Fresh state: every automaton at the exclude boundary (state == N),
     /// hence zero includes, all-zero masks, and every clause fires on every
     /// document (vacuous conjunction) — with balanced polarities the fresh
@@ -6258,6 +6597,7 @@ impl ByteBagTM {
         automaton_depth: StatesPerAction,
         specificity: SpecificityThresholds,
         scan_cap: MaxScanBytes,
+        fire_guard_limit: FireGuardStreakLimit,
     ) -> Result<Self, GranmoModelError> {
         vocabulary_for_engine.vocab_validity_recheck()?;
 
@@ -6266,6 +6606,7 @@ impl ByteBagTM {
         let resolved_depth = automaton_depth.get()?;
         let (resolved_forget, resolved_reinforce) = specificity.get()?;
         let resolved_scan_cap = scan_cap.get()? as usize;
+        let resolved_fire_guard_limit = fire_guard_limit.get()?;
 
         // Sizing. validity_recheck guarantees vocabulary_len() >= 1.
         let feature_count = vocabulary_for_engine.vocabulary_len();
@@ -6294,9 +6635,11 @@ impl ByteBagTM {
             bag_ta_states: vec![resolved_depth; total_state_count],
             bag_positive_include_masks: vec![0u64; total_mask_words],
             bag_negated_include_masks: vec![0u64; total_mask_words],
+            bag_fire_guard_limit: resolved_fire_guard_limit,
+            bag_fire_streaks: vec![0u32; resolved_clause_count],
+            bag_fire_guard_reset_counts: vec![0u32; resolved_clause_count],
         })
     }
-
     // --- Layout helpers -----------------------------------------------------
 
     /// M: the actual vocabulary size. Derived from the vocabulary on every
@@ -6570,6 +6913,17 @@ impl ByteBagTM {
         self.bag_clause_total
     }
 
+    /// Total fire-guard resets performed during this training session,
+    /// summed over all clauses (run-report telemetry). Saturating fold:
+    /// telemetry must never be a panic path.
+    pub fn bag_fire_guard_reset_total(&self) -> u64 {
+        self.bag_fire_guard_reset_counts
+            .iter()
+            .fold(0u64, |accumulated, &clause_resets| {
+                accumulated.saturating_add(u64::from(clause_resets))
+            })
+    }
+
     /// Read access to the vocabulary (harness explainability / reporting).
     pub fn bag_vocabulary_ref(&self) -> &ByteBagVocabulary {
         &self.bag_vocabulary
@@ -6591,7 +6945,9 @@ impl ByteBagTM {
 
     // --- Mask maintenance -------------------------------------------------------
     /// Builds an exclusive mutable view of ONE clause (sequential paths:
-    /// artifact-load mask rebuild, test helpers).
+    /// artifact-load mask rebuild via the all-views builder is preferred;
+    /// this single-clause form serves test helpers and unit-level guard
+    /// tests).
     fn _test_bag_build_clause_view(
         &mut self,
         clause: usize,
@@ -6607,6 +6963,7 @@ impl ByteBagTM {
         let feature_count = self.bag_feature_count();
         let literals_per_clause = self.bag_literals_per_clause();
         let mask_words_per_clause = self.bag_mask_words_per_clause();
+        let fire_guard_limit = self.bag_fire_guard_limit;
 
         let state_start = clause
             .checked_mul(literals_per_clause)
@@ -6627,6 +6984,7 @@ impl ByteBagTM {
             depth_n: properties.depth_n,
             forget_threshold: properties.forget_threshold,
             reinforce_threshold: properties.reinforce_threshold,
+            fire_guard_limit,
             states: self
                 .bag_ta_states
                 .get_mut(state_start..state_end)
@@ -6639,13 +6997,27 @@ impl ByteBagTM {
                 .bag_negated_include_masks
                 .get_mut(mask_start..mask_end)
                 .ok_or(GranmoModelError::ParClauseViewGeometryFault)?,
+            fire_streak: self
+                .bag_fire_streaks
+                .get_mut(clause)
+                .ok_or(GranmoModelError::BbgFireGuardIndexOutOfRange)?,
+            fire_guard_reset_count: self
+                .bag_fire_guard_reset_counts
+                .get_mut(clause)
+                .ok_or(GranmoModelError::BbgFireGuardIndexOutOfRange)?,
         })
     }
 
     /// Builds exclusive mutable views of EVERY clause at once, by zipping
-    /// `chunks_mut` over the three storage vectors — the same disjointness
-    /// proof as the conv engine's builder, which is what permits handing
-    /// contiguous view ranges to different threads without `unsafe`.
+    /// `chunks_mut` over the three storage vectors and `iter_mut` over the
+    /// two per-clause guard vectors — the same disjointness proof as the
+    /// conv engine's builder, which is what permits handing contiguous
+    /// view ranges to different threads without `unsafe`.
+    ///
+    /// Geometry note: if either guard vector were shorter than the clause
+    /// count (corruption), the zip would truncate and the final
+    /// `views.len() != clause_total` check reports it as a geometry fault
+    /// — no silent partial coverage is possible.
     fn bag_build_all_clause_views(
         &mut self,
     ) -> Result<Vec<BagClauseWorkView<'_>>, GranmoModelError> {
@@ -6653,6 +7025,7 @@ impl ByteBagTM {
         let feature_count = self.bag_feature_count();
         let literals_per_clause = self.bag_literals_per_clause();
         let mask_words_per_clause = self.bag_mask_words_per_clause();
+        let fire_guard_limit = self.bag_fire_guard_limit;
 
         // Snapshot P4 properties through the accessors BEFORE the mutable
         // borrows below (the accessors need `&self`).
@@ -6673,10 +7046,17 @@ impl ByteBagTM {
         let negated_chunks = self
             .bag_negated_include_masks
             .chunks_mut(mask_words_per_clause);
+        let streak_slots = self.bag_fire_streaks.iter_mut();
+        let reset_count_slots = self.bag_fire_guard_reset_counts.iter_mut();
 
-        for (clause_index, ((state_chunk, positive_chunk), negated_chunk)) in state_chunks
+        for (
+            clause_index,
+            ((((state_chunk, positive_chunk), negated_chunk), streak_slot), reset_count_slot),
+        ) in state_chunks
             .zip(positive_chunks)
             .zip(negated_chunks)
+            .zip(streak_slots)
+            .zip(reset_count_slots)
             .enumerate()
         {
             let properties = *clause_properties
@@ -6694,9 +7074,12 @@ impl ByteBagTM {
                 depth_n: properties.depth_n,
                 forget_threshold: properties.forget_threshold,
                 reinforce_threshold: properties.reinforce_threshold,
+                fire_guard_limit,
                 states: state_chunk,
                 positive_mask_words: positive_chunk,
                 negated_mask_words: negated_chunk,
+                fire_streak: streak_slot,
+                fire_guard_reset_count: reset_count_slot,
             });
         }
         if views.len() != clause_total {
@@ -6704,6 +7087,7 @@ impl ByteBagTM {
         }
         Ok(views)
     }
+
     // --- Training -------------------------------------------------------------------
     /// One stochastic training update for one document, single-threaded.
     /// Byte-identical to `bag_train_step_with_workers(..., WorkerCount 1)`
@@ -6837,6 +7221,16 @@ impl ByteBagTM {
             || self.bag_negated_include_masks.len() != expected_mask_total
         {
             return Err(GranmoModelError::BbgEngineIndexOutOfRange);
+        }
+
+        // Guard storage geometry (Drop 4.1): one streak slot and one
+        // reset-count slot per clause. Streaks carry no cross-invariant
+        // against automaton states (they are observations, not derived
+        // caches), so geometry is the only checkable property.
+        if self.bag_fire_streaks.len() != self.bag_clause_total
+            || self.bag_fire_guard_reset_counts.len() != self.bag_clause_total
+        {
+            return Err(GranmoModelError::BbgFireGuardIndexOutOfRange);
         }
 
         for clause in 0..self.bag_clause_total {
@@ -7031,10 +7425,12 @@ mod tests {
             vec![1]
         );
         // Order sensitivity: same bytes reversed must NOT fire.
-        assert!(engine
-            .conv_fired_window_positions(0, b"zba")
-            .unwrap()
-            .is_empty());
+        assert!(
+            engine
+                .conv_fired_window_positions(0, b"zba")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -7044,10 +7440,11 @@ mod tests {
         let mut s2 = make_engine(2, 2, 2, false);
         s2.conv_test_force_include(0, s2.positive_local_index(0, usize::from(b'a')));
         s2.conv_test_force_include(0, s2.positive_local_index(1, usize::from(b'b')));
-        assert!(s2
-            .conv_fired_window_positions(0, b"zab")
-            .unwrap()
-            .is_empty());
+        assert!(
+            s2.conv_fired_window_positions(0, b"zab")
+                .unwrap()
+                .is_empty()
+        );
 
         let mut s1 = make_engine(2, 1, 2, false);
         s1.conv_test_force_include(0, s1.positive_local_index(0, usize::from(b'a')));
@@ -7069,10 +7466,12 @@ mod tests {
             engine.conv_fired_window_positions(0, b"hi").unwrap(),
             vec![0]
         );
-        assert!(engine
-            .conv_fired_window_positions(2, b"hi")
-            .unwrap()
-            .is_empty());
+        assert!(
+            engine
+                .conv_fired_window_positions(2, b"hi")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -7094,14 +7493,18 @@ mod tests {
         unguarded.conv_test_force_include(0, unguarded.positive_local_index(0, usize::from(b'a')));
         unguarded.conv_test_force_include(0, unguarded.positive_local_index(0, usize::from(b'b')));
         unguarded.conv_validate_internal_consistency().unwrap();
-        assert!(unguarded
-            .conv_fired_window_positions(0, b"ax")
-            .unwrap()
-            .is_empty());
-        assert!(unguarded
-            .conv_fired_window_positions(0, b"bx")
-            .unwrap()
-            .is_empty());
+        assert!(
+            unguarded
+                .conv_fired_window_positions(0, b"ax")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            unguarded
+                .conv_fired_window_positions(0, b"bx")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     // --- ByteConvTM: training invariants and learning ---
@@ -7686,6 +8089,7 @@ mod tests {
             specificity: 3.0,
             max_scan_bytes: 256,
             guarded_include: false,
+            fire_guard_streak_limit: 0,
             epochs: 400,
             seed: 42,
             worker_count: 2,
@@ -7964,7 +8368,7 @@ mod tests {
         assert_eq!(vocab.lookup(b"ba").unwrap(), Some(1));
         assert_eq!(vocab.lookup(b"aa").unwrap(), None); // truncated out
         assert_eq!(vocab.lookup(b"zz").unwrap(), None); // never seen
-                                                        // Wrong-length shingle is a wiring error, not a miss.
+        // Wrong-length shingle is a wiring error, not a miss.
         assert_eq!(
             vocab.lookup(b"abc").err(),
             Some(GranmoModelError::BbgVocabIndexOutOfRange)
@@ -8115,12 +8519,30 @@ mod tests {
 
     /// Builds a ByteBagTM over a vocabulary constructed from `corpus`.
     /// Fixed harness defaults (T=15, N=100, s=3.0, scan cap 256) mirror
-    /// `make_engine` on the conv side; unique name per project rule.
+    /// `make_engine` on the conv side; fire guard DISABLED (the recorded
+    /// baseline). Unique name per project rule.
     fn make_bag_engine(
         ngram_len_value: u8,
         vocab_cap: u16,
         corpus: &[&[u8]],
         clause_count_value: u16,
+    ) -> ByteBagTM {
+        make_bag_engine_with_guard(
+            ngram_len_value,
+            vocab_cap,
+            corpus,
+            clause_count_value,
+            FireGuardStreakLimit::DISABLED,
+        )
+    }
+
+    /// Guard-configurable sibling of `make_bag_engine` (Drop 4.1 tests).
+    fn make_bag_engine_with_guard(
+        ngram_len_value: u8,
+        vocab_cap: u16,
+        corpus: &[&[u8]],
+        clause_count_value: u16,
+        fire_guard_limit_value: u32,
     ) -> ByteBagTM {
         let built_vocabulary = ByteBagVocabulary::build_from_documents(
             NgramLength::new(ngram_len_value).unwrap(),
@@ -8135,6 +8557,7 @@ mod tests {
             StatesPerAction::new(100).unwrap(),
             SpecificityThresholds::from_specificity(3.0).unwrap(),
             MaxScanBytes::new(256).unwrap(),
+            FireGuardStreakLimit::new(fire_guard_limit_value).unwrap(),
         )
         .unwrap()
     }
@@ -8433,6 +8856,7 @@ mod tests {
             specificity: 3.0,
             max_scan_bytes: 256,
             guarded_include: false, // ignored by bag
+            fire_guard_streak_limit: 0,
             epochs: 1,
             seed: 42,
             worker_count: 2,
@@ -8483,6 +8907,7 @@ mod tests {
             specificity: 3.0,
             max_scan_bytes: 256,
             guarded_include: false, // ignored by bag
+            fire_guard_streak_limit: 0,
             epochs: 400,
             seed: 42,
             worker_count: 2,
@@ -8587,6 +9012,7 @@ mod tests {
             specificity: 3.0,
             max_scan_bytes: 256,
             guarded_include: false,
+            fire_guard_streak_limit: 0,
             epochs: 0, // no training: model stays fresh and vote stays 0
             seed: 42,
             worker_count: 2,
@@ -8746,6 +9172,184 @@ mod tests {
         assert_eq!(
             single.bag_negated_include_masks, many.bag_negated_include_masks,
             "negated masks diverged"
+        );
+    }
+
+    // --- Fire-streak guard (Drop 4.1) ---
+
+    /// Newtype bounds: 0 (disabled) and the active range are accepted;
+    /// sub-minimum active values and over-max values are rejected.
+    #[test]
+    fn fire_guard_limit_bounds() {
+        assert!(FireGuardStreakLimit::new(0).is_ok());
+        assert!(FireGuardStreakLimit::new(16).is_ok());
+        assert!(FireGuardStreakLimit::new(16_777_216).is_ok());
+        assert_eq!(
+            FireGuardStreakLimit::new(15).err(),
+            Some(GranmoModelError::CfgFireGuardLimitOutOfBounds)
+        );
+        assert_eq!(
+            FireGuardStreakLimit::new(1).err(),
+            Some(GranmoModelError::CfgFireGuardLimitOutOfBounds)
+        );
+        assert_eq!(
+            FireGuardStreakLimit::new(16_777_217).err(),
+            Some(GranmoModelError::CfgFireGuardLimitOutOfBounds)
+        );
+    }
+
+    /// The vacuous exemption at unit level: a fresh clause (zero
+    /// includes) fed `fired = true` far past the limit must never
+    /// accumulate a streak and never reset — the bootstrap state is
+    /// exempt by specification.
+    #[test]
+    fn bag_fire_guard_exempts_vacuous_clauses() {
+        let mut bag_engine = make_bag_engine_with_guard(2, 100, &[b"ababab"], 2, 16);
+        {
+            let mut clause_view = bag_engine._test_bag_build_clause_view(0).unwrap();
+            for _ in 0..100 {
+                assert!(!clause_view.view_bag_apply_fire_guard(true).unwrap());
+            }
+            assert_eq!(*clause_view.fire_streak, 0);
+            assert_eq!(*clause_view.fire_guard_reset_count, 0);
+        }
+        bag_engine.bag_validate_internal_consistency().unwrap();
+    }
+
+    /// The streak is CONSECUTIVE by specification: one non-fire zeroes
+    /// it, and only an unbroken run of `limit` fires (while non-vacuous)
+    /// triggers the reset. Also verifies the reset restores the fresh
+    /// invariant exactly (all states == N, both masks zero).
+    #[test]
+    fn bag_fire_guard_streak_breaks_on_any_non_fire_and_resets_at_limit() {
+        let mut bag_engine = make_bag_engine_with_guard(2, 100, &[b"ababab"], 2, 16);
+        bag_engine.bag_test_force_include(0, 0); // non-vacuous: require "ab"
+        {
+            let mut clause_view = bag_engine._test_bag_build_clause_view(0).unwrap();
+            for _ in 0..15 {
+                assert!(!clause_view.view_bag_apply_fire_guard(true).unwrap());
+            }
+            assert_eq!(*clause_view.fire_streak, 15);
+            // One non-fire zeroes the streak.
+            assert!(!clause_view.view_bag_apply_fire_guard(false).unwrap());
+            assert_eq!(*clause_view.fire_streak, 0);
+            // A fresh run of 15 does not reach the limit...
+            for _ in 0..15 {
+                assert!(!clause_view.view_bag_apply_fire_guard(true).unwrap());
+            }
+            // ...and the 16th consecutive fire triggers the reset.
+            assert!(clause_view.view_bag_apply_fire_guard(true).unwrap());
+            assert_eq!(*clause_view.fire_streak, 0);
+            assert_eq!(*clause_view.fire_guard_reset_count, 1);
+            assert!(clause_view.states.iter().all(|&s| s == 100));
+            assert!(clause_view.positive_mask_words.iter().all(|&w| w == 0));
+            assert!(clause_view.negated_mask_words.iter().all(|&w| w == 0));
+        }
+        bag_engine.bag_validate_internal_consistency().unwrap();
+    }
+
+    /// Integration: the guard fires through the REAL training path. A
+    /// clause forced to require a shingle present in every training
+    /// document — the exact pathological case the guard targets — is
+    /// reset at step == limit. Deterministic: the guard is independent of
+    /// the feedback gates, and within 16 steps neither Ib decay (needs
+    /// ~100 gated decrements to drop the forced include) nor Type II
+    /// (needs ~100 gated increments to add a blocking literal) can change
+    /// clause 0's firing behavior.
+    #[test]
+    fn bag_fire_guard_resets_pathological_clause_during_training() {
+        let mut bag_engine = make_bag_engine_with_guard(2, 100, &[b"ababab"], 2, 16);
+        bag_engine.bag_test_force_include(0, 0); // require "ab" — ubiquitous
+        let mut rng = FastRng::seed(42);
+        for _ in 0..16 {
+            bag_engine.bag_train_step(b"abab", true, &mut rng).unwrap();
+        }
+        // Step 16 reached streak == limit: exactly one reset (clause 1
+        // stays vacuous throughout — exempt — so it cannot contribute).
+        assert_eq!(bag_engine.bag_fire_guard_reset_total(), 1);
+        // Clause 0 is fresh right after the reset step (feedback was
+        // skipped that step, and training stopped there).
+        let literals = bag_engine.bag_literals_per_clause();
+        assert!(
+            bag_engine.bag_ta_states[..literals]
+                .iter()
+                .all(|&s| s == 100)
+        );
+        bag_engine.bag_validate_internal_consistency().unwrap();
+    }
+
+    /// The parallelization contract EXTENDED to the guard: with the guard
+    /// ON, one and many workers must produce byte-identical states,
+    /// masks, streaks, AND reset telemetry.
+    #[test]
+    fn bag_fire_guard_training_is_worker_count_invariant() {
+        let corpus: &[&[u8]] = &[b"very good movie", b"not good movie", b"hi"];
+        let training_docs: [(&[u8], bool); 3] = [
+            (b"very good movie", true),
+            (b"not good movie", false),
+            (b"hi", true),
+        ];
+        let run_training = |workers: u16| -> ByteBagTM {
+            let mut engine = make_bag_engine_with_guard(3, 100, corpus, 16, 16);
+            let mut rng = FastRng::seed(123);
+            let worker_count = WorkerCount::new(workers).unwrap();
+            for _ in 0..40 {
+                for (doc, label) in training_docs {
+                    engine
+                        .bag_train_step_with_workers(doc, *&label, &mut rng, worker_count)
+                        .unwrap();
+                }
+            }
+            engine.bag_validate_internal_consistency().unwrap();
+            engine
+        };
+        let single = run_training(1);
+        let many = run_training(8);
+        assert_eq!(single.bag_ta_states, many.bag_ta_states, "states diverged");
+        assert_eq!(
+            single.bag_positive_include_masks, many.bag_positive_include_masks,
+            "positive masks diverged"
+        );
+        assert_eq!(
+            single.bag_negated_include_masks, many.bag_negated_include_masks,
+            "negated masks diverged"
+        );
+        assert_eq!(
+            single.bag_fire_streaks, many.bag_fire_streaks,
+            "guard streaks diverged"
+        );
+        assert_eq!(
+            single.bag_fire_guard_reset_counts, many.bag_fire_guard_reset_counts,
+            "guard reset telemetry diverged"
+        );
+    }
+    /*
+    Regression coverage note (recorded, no new test needed): the guard-disabled
+    path is structurally inert (zero RNG consumed, short-circuit before any state
+    touch), and the existing stochastic-outcome tests
+    — bag_learns_negation_micro_corpus,
+    harness_bag_engine_end_to_end_on_negation_corpus,
+    bag_training_is_worker_count_invariant — all train with the guard disabled
+    through the updated constructor. If the disabled guard changed any behavior,
+    those tests would fail. They are the regression oracle.
+    */
+
+    /// CLI: `--fire-guard` parses; absent flag defaults to 0 (disabled);
+    /// a sub-minimum active value is rejected at config resolution with
+    /// the newtype's specific code (fail-fast at the CLI boundary).
+    #[test]
+    fn cli_parses_fire_guard_flag_and_validates_bounds() {
+        let parsed = cli(&["--mode", "train", "--fire-guard", "2000"]).unwrap();
+        assert_eq!(parsed.fire_guard_streak_limit, 2000);
+        assert!(parsed.to_run_config().is_ok());
+
+        let defaulted = cli(&["--mode", "train"]).unwrap();
+        assert_eq!(defaulted.fire_guard_streak_limit, 0);
+
+        let bad = cli(&["--mode", "train", "--fire-guard", "5"]).unwrap();
+        assert_eq!(
+            bad.to_run_config().err(),
+            Some(GranmoModelError::CfgFireGuardLimitOutOfBounds)
         );
     }
 

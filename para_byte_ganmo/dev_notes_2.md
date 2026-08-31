@@ -41,6 +41,36 @@ cargo run --release -- \
 ```
 ///////////////////////////////////////////////////
 
+# prospective
+
+```bash
+cargo run --release -- \
+  --mode train \
+  --data /home/oops/datasets/hate-speech-detection-curated-dataset/HateSpeechDatasetBalanced_deduplicatedv2.jsonl \
+  --text-key text \
+  --label-key label \
+  --positive-label 1 \
+  --preset p0 \
+  --engine byte-bag \
+  --ngram-len 5 \
+  --vocab-size 16000 \
+  --clauses 600 \
+  --vote-threshold 200 \
+  --states 400 \
+  --specificity 10.0 \
+  --max-scan 1024 \
+  --epochs 6 \
+  --seed 42 \
+  --train-percent 80 \
+  --model-out /home/oops/models/HateSpeech_bytebag_v3.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/HateSpeech_bytebag_v2.txt \
+  --workers auto
+```
+
+
+
+
+///////////////////
 
 
 # byte-conv 1
@@ -131,3 +161,28 @@ Clause Dynamics:
 misprediction log: appended 48201 records to /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/byte_bag_logout.txt
 saved model artifact to /home/oops/models/HateSpeechDatasetBalanced_quickbyte_bag_1.json
 ```
+
+
+# byte-bag 2
+better cleaned dataset
+```bash
+cargo run --release -- \
+--mode train --data /home/oops/datasets/hate-speech-detection-curated-dataset/HateSpeechDatasetBalanced_deduplicatedv2.jsonl \
+--text-key text  --label-key label  --positive-label 1 \
+--preset p3  --engine byte-bag \
+--ngram-len 5  --vocab-size 4000 \
+--clauses 200  --vote-threshold 80  --states 100 \
+--specificity 5.0  --max-scan 1024  --epochs 8  --seed 42 \
+--train-percent 80  --model-out /home/oops/models/HateSpeechDatasetBalanced_deduplicatedv2-1.json \
+--log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/HateSpeechDatasetBalanced_deduplicatedv2-1.txt \
+--workers auto
+```
+
+
+# deduplicated
+```bash
+cargo run --release --   --mode batch   --data /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_dedupe_v3.jsonl   --model-out /home/oops/models/batchcyber_conv_v3.gmb   --clauses 600   --vote-threshold 160   --stride 1   --patch 5   --specificity 3.0   --states 200   --vocab-size 4000   --ngram-len 5   --epochs 12   --seed 42   --workers auto
+```
+
+
+cargo run --release --   --mode batch   --data /home/oops/datasets/NLP/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_dedupe_v3.jsonl   --model-out /home/oops/models/batchcyber_conv_v4.gmb   --clauses 600   --vote-threshold 160   --stride 1   --patch 5   --specificity 3.0   --states 200   --vocab-size 4000   --ngram-len 5   --epochs 12   --seed 42   --workers auto --guarded

@@ -878,3 +878,25 @@ Actual Pos (1)    249         9742
 Clause Dynamics:
   fire-rate over 19976 test docs: never 0/200  always 0/200  p25 12.9%  median 17.3%  p75 20.6%
 ============================================================
+
+
+maybe better setting for conv...
+
+```bash
+cargo run --release -- \
+  --mode batch \
+  --data /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl \
+  --model-out /home/oops/models/batchcyber_conv_v3.gmb \
+  --clauses 600 \
+  --vote-threshold 160 \
+  --stride 1 \
+  --patch 5 \
+  --specificity 3.0 \
+  --states 200 \
+  --vocab-size 4000 \
+  --ngram-len 5 \
+  --epochs 12 \
+  --guarded \
+  --seed 42 \
+  --workers auto
+```
