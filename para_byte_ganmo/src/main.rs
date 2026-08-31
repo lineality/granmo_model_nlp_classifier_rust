@@ -222,7 +222,7 @@ pub enum GranmoModelError {
     CliInvalidValue = 802,
     /// A flag required by the selected mode was absent.
     CliMissingRequiredFlag = 803,
-    /// `--mode` value was not one of train/predict/batch.
+    /// `--mode` value was not one of train/predict/batch/batch-guard.
     CliUnknownMode = 804,
     /// `--preset` value was not one of raw/p0/p1/p2/p3/p4/p5.
     CliUnknownPreset = 805,
@@ -2657,6 +2657,34 @@ impl ByteConvTM {
         self.n_clauses
     }
 
+    /// Per-clause total of INCLUDED literals (positive + negated),
+    /// counted from raw automaton states — the conv-side counterpart of
+    /// `bag_clause_include_totals` (same reading guide: 0 = vacuous
+    /// bootstrap clause, fires on every window by construction).
+    /// Reporting tier: read-only, O(clauses × literals).
+    pub fn conv_clause_include_totals(&self) -> Result<Vec<u32>, GranmoModelError> {
+        let literals_per_clause = self.literals_per_clause();
+        let mut totals: Vec<u32> = Vec::with_capacity(self.n_clauses);
+        for clause in 0..self.n_clauses {
+            let depth_n = self.depth_for_clause(clause);
+            let clause_base = clause
+                .checked_mul(literals_per_clause)
+                .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+            let clause_end = clause_base
+                .checked_add(literals_per_clause)
+                .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+            let clause_states = self
+                .ta_states
+                .get(clause_base..clause_end)
+                .ok_or(GranmoModelError::BctIndexOutOfRange)?;
+            let included = clause_states.iter().filter(|&&s| s > depth_n).count();
+            totals.push(
+                u32::try_from(included).map_err(|_| GranmoModelError::BctArithmeticOverflow)?,
+            );
+        }
+        Ok(totals)
+    }
+
     /// Test-only helper: forces a literal fully into the include region via
     /// the cache-maintaining view transition path, so tests can
     /// hand-construct exact clauses without breaking the mask/count
@@ -2834,6 +2862,15 @@ impl ClassifierEngine {
         match self {
             Self::ByteConv(_conv_engine) => 0,
             Self::ByteBag(bag_engine) => bag_engine.bag_fire_guard_reset_total(),
+        }
+    }
+
+    /// Per-clause included-literal totals (specialization/vacuity
+    /// diagnostic; see the engine methods for the reading guide).
+    pub fn engine_clause_include_totals(&self) -> Result<Vec<u32>, GranmoModelError> {
+        match self {
+            Self::ByteConv(conv_engine) => conv_engine.conv_clause_include_totals(),
+            Self::ByteBag(bag_engine) => bag_engine.bag_clause_include_totals(),
         }
     }
 
@@ -4302,7 +4339,6 @@ pub struct ExperimentReport {
     /// vote-imbalance risk and for deciding whether the CoTM clause-weight
     /// arm gets pulled forward.
     pub clause_fire_counts: Vec<u32>,
-
     /// Total fire-guard resets performed during training (Drop 4.1) —
     /// the guard's ACTIVITY instrument. Read TOGETHER with the fire-rate
     /// report's "always" count (the OUTCOME instrument): many resets with
@@ -4311,6 +4347,18 @@ pub struct ExperimentReport {
     /// (frequency capping) rather than more guarding. Always 0 for the
     /// conv engine and whenever the guard is disabled.
     pub fire_guard_reset_total: u64,
+    /// Per-clause included-literal totals at end of training (paired
+    /// index-for-index with `clause_fire_counts`). Powers the
+    /// vacuous-vs-specialized breakdown of the always-fire count and the
+    /// includes-per-clause histogram: a large vacuous population means
+    /// the depth/epoch budget (N vs. epochs) is the lever, not the guard.
+    pub clause_include_totals: Vec<u32>,
+    /// The fire-guard limit this run actually trained with (0 = off, and
+    /// always 0 for the conv engine). Recorded so the report can print
+    /// guard activity UNCONDITIONALLY when the guard was armed —
+    /// "limit 500, resets 0" is itself a finding, and was previously
+    /// indistinguishable from "guard off" in the output.
+    pub fire_guard_limit_used: u32,
     /// Test documents misclassified at the default threshold V > 0,
     /// captured for the misprediction inspection log. Pairs raw and
     /// preprocessed text so label errors AND preprocessing artifacts are
@@ -4926,6 +4974,9 @@ pub fn run_single_experiment(
         }
     }
 
+    // Post-training specialization snapshot (vacuity/includes diagnostic).
+    let clause_include_totals = engine.engine_clause_include_totals()?;
+
     let report = ExperimentReport {
         engine_name_reported: engine.engine_name(),
         train_count: train_documents.len(),
@@ -4935,6 +4986,11 @@ pub fn run_single_experiment(
         train_seconds,
         clause_fire_counts,
         fire_guard_reset_total: engine.engine_fire_guard_reset_total(),
+        clause_include_totals,
+        fire_guard_limit_used: match config.engine_selection {
+            EngineSelection::ByteBag => config.fire_guard_streak_limit,
+            EngineSelection::ByteConv => FireGuardStreakLimit::DISABLED,
+        },
         mispredictions,
     };
     Ok((engine, report))
@@ -4979,6 +5035,15 @@ struct CliArgs {
     log_out: Option<std::path::PathBuf>,
     /// `None` = resolve automatically from available parallelism.
     worker_count: Option<u16>,
+    /// `--guard-limits` sweep for batch-guard mode (comma-separated;
+    /// 0 = guard-off baseline row). Each value validated through
+    /// `FireGuardStreakLimit` at parse time (fail-fast).
+    guard_limits: Vec<u32>,
+    /// `--test-cap`: truncate the test split to at most N documents
+    /// (0 = no cap). BATCH-GUARD ONLY — deliberately not applied in
+    /// train/batch so recorded baseline rows stay comparable. Truncation
+    /// happens AFTER the seeded shuffle-split, so it is deterministic.
+    test_cap: usize,
 }
 
 /// Maps a preset name to its profile (§5 presets of record).
@@ -5060,6 +5125,8 @@ impl CliArgs {
             predict_text: None,
             log_out: None,
             worker_count: None,
+            guard_limits: vec![0, 500, 2000, 8000],
+            test_cap: 0,
         };
 
         /// Fetches the value after a flag; a flag at end-of-args is an error.
@@ -5165,6 +5232,31 @@ impl CliArgs {
                         Some(parse_flag_number::<u16>(flag, raw_value)?)
                     };
                 }
+                "--guard-limits" => {
+                    let raw_list = take_value(args, &mut i, flag)?;
+                    let mut parsed_limits: Vec<u32> = Vec::new();
+                    for piece in raw_list.split(',') {
+                        let trimmed = piece.trim();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+                        let limit_value: u32 = parse_flag_number(flag, trimmed)?;
+                        // Fail-fast at the CLI boundary: 0 or an active
+                        // in-range limit; 1..=15 rejected as typos.
+                        let _ = FireGuardStreakLimit::new(limit_value)?;
+                        parsed_limits.push(limit_value);
+                    }
+                    if parsed_limits.is_empty() {
+                        #[cfg(debug_assertions)]
+                        eprintln!("CLI-802: --guard-limits produced an empty list");
+                        return Err(GranmoModelError::CliInvalidValue);
+                    }
+                    parsed.guard_limits = parsed_limits;
+                }
+                "--test-cap" => {
+                    parsed.test_cap = parse_flag_number(flag, take_value(args, &mut i, flag)?)?;
+                }
+
                 _unknown => {
                     #[cfg(debug_assertions)]
                     eprintln!("CLI-800: unknown flag '{}'", _unknown);
@@ -5220,6 +5312,11 @@ fn print_help() {
     println!("BATCH:   --mode batch --data /abs/path.jsonl [options]");
     println!("         (comparison matrix: presets raw,p0,p1,p2 x engines");
     println!("          byte-conv,byte-bag on ONE identical split and seed)");
+    println!("BATCH-GUARD: --mode batch-guard --data /abs/path.jsonl [options]");
+    println!("         (fire-guard ladder: byte-bag only, ONE preset, one row");
+    println!("          per --guard-limits value; 0 = guard-off baseline)");
+    println!("  --guard-limits 0,500,2000,8000  (comma-separated sweep)");
+    println!("  --test-cap 0    (batch-guard only: cap eval docs; 0 = off)");
     println!("PREDICT: --mode predict --model-in /abs/model.gmb --text \"...\"");
     println!("Options (defaults) NOTE: '|' is a separator NOT 'or')");
     println!("  --text-key text | --label-key label | --positive-label 1");
@@ -5254,13 +5351,17 @@ fn print_help() {
     );
 }
 
-/// Formats the S2-8 fire-rate diagnostic as one compact line: counts of
-/// never-firing clauses (dead weight) and always-firing clauses (vote
-/// offset, not evidence), plus the 25th/50th/75th percentile fire rates
-/// as percentages of the test set. Reporting tier: floats and heap are
-/// permitted here. The raw per-clause counts remain available in
-/// `ExperimentReport::clause_fire_counts` for deeper offline analysis.
-fn summarize_fire_counts(clause_fire_counts: &[u32], test_count: usize) -> String {
+/// Formats the S2-8 fire-rate diagnostic, now with the vacuous-vs-
+/// specialized breakdown of the always-firing population (Drop 4.2):
+/// a VACUOUS always-firer (zero includes) is bootstrap state — guard-
+/// exempt by design, cured by depth/epoch budget; a SPECIALIZED
+/// always-firer (a learned ubiquitous pattern) is the guard's actual
+/// target. Reporting tier: floats and heap permitted.
+fn summarize_fire_counts(
+    clause_fire_counts: &[u32],
+    clause_include_totals: &[u32],
+    test_count: usize,
+) -> String {
     if clause_fire_counts.is_empty() || test_count == 0 {
         return "fire-rate: (no data)".to_string();
     }
@@ -5270,6 +5371,32 @@ fn summarize_fire_counts(clause_fire_counts: &[u32], test_count: usize) -> Strin
         .iter()
         .filter(|&&c| c as usize == test_count)
         .count();
+
+    // Breakdown only when the include totals align (defensive: a length
+    // mismatch means report wiring changed — degrade to the old line
+    // rather than misattribute counts).
+    let always_breakdown = if clause_include_totals.len() == clause_total {
+        let mut always_vacuous = 0usize;
+        let mut always_specialized = 0usize;
+        for (&fired_count, &include_total) in
+            clause_fire_counts.iter().zip(clause_include_totals.iter())
+        {
+            if fired_count as usize == test_count {
+                if include_total == 0 {
+                    always_vacuous += 1;
+                } else {
+                    always_specialized += 1;
+                }
+            }
+        }
+        format!(
+            " ({} vacuous, {} specialized)",
+            always_vacuous, always_specialized
+        )
+    } else {
+        String::new()
+    };
+
     let mut sorted_counts: Vec<u32> = clause_fire_counts.to_vec();
     sorted_counts.sort_unstable();
     let percentile_rate = |numerator: usize, denominator: usize| -> f64 {
@@ -5278,15 +5405,43 @@ fn summarize_fire_counts(clause_fire_counts: &[u32], test_count: usize) -> Strin
         100.0 * f64::from(count_at_index) / test_count as f64
     };
     format!(
-        "fire-rate over {} test docs: never {}/{}  always {}/{}  p25 {:.1}%  median {:.1}%  p75 {:.1}%",
+        "fire-rate over {} test docs: never {}/{}  always {}/{}{}  p25 {:.1}%  median {:.1}%  p75 {:.1}%",
         test_count,
         never_fired,
         clause_total,
         always_fired,
         clause_total,
+        always_breakdown,
         percentile_rate(1, 4),
         percentile_rate(1, 2),
         percentile_rate(3, 4)
+    )
+}
+
+/// Formats the includes-per-clause histogram (specialization summary).
+/// Reading guide: a median near 0 after many epochs means automata are
+/// not crossing the include boundary at the configured depth N within
+/// the epoch budget — lower `--states` or raise `--epochs` before
+/// reaching for the guard. Reporting tier.
+fn summarize_include_totals(clause_include_totals: &[u32]) -> String {
+    if clause_include_totals.is_empty() {
+        return "includes/clause: (no data)".to_string();
+    }
+    let mut sorted_totals: Vec<u32> = clause_include_totals.to_vec();
+    sorted_totals.sort_unstable();
+    let vacuous_total = sorted_totals.iter().filter(|&&c| c == 0).count();
+    let value_at = |numerator: usize, denominator: usize| -> u32 {
+        let index = (sorted_totals.len().saturating_sub(1)) * numerator / denominator;
+        sorted_totals.get(index).copied().unwrap_or(0)
+    };
+    format!(
+        "includes/clause: min {}  p25 {}  median {}  p75 {}  max {}  ({} clauses vacuous)",
+        sorted_totals.first().copied().unwrap_or(0),
+        value_at(1, 4),
+        value_at(1, 2),
+        value_at(3, 4),
+        sorted_totals.last().copied().unwrap_or(0),
+        vacuous_total
     )
 }
 
@@ -5361,8 +5516,27 @@ fn print_experiment_report(run_label: &str, report: &ExperimentReport) {
     println!("Clause Dynamics:");
     println!(
         "  {}",
-        summarize_fire_counts(&report.clause_fire_counts, report.test_count)
+        summarize_fire_counts(
+            &report.clause_fire_counts,
+            &report.clause_include_totals,
+            report.test_count
+        )
     );
+    println!(
+        "  {}",
+        summarize_include_totals(&report.clause_include_totals)
+    );
+    // Guard activity is printed UNCONDITIONALLY whenever the guard was
+    // armed: "resets 0" is a finding (guard ran, found nothing to prune),
+    // previously indistinguishable from "guard off".
+    if report.fire_guard_limit_used != FireGuardStreakLimit::DISABLED {
+        println!(
+            "  fire-guard: limit {}, resets {}",
+            report.fire_guard_limit_used, report.fire_guard_reset_total
+        );
+    }
+
+    // TODO: Deprecated?
     if report.fire_guard_reset_total > 0 {
         println!(
             "  fire-guard resets during training: {} (clauses recycled to fresh state)",
@@ -5568,6 +5742,9 @@ fn handle_batch(args: &CliArgs) -> Result<(), GranmoModelError> {
         test_side.len(),
         args.seed
     );
+
+    let batch_start = std::time::Instant::now();
+
     if args.fire_guard_streak_limit != FireGuardStreakLimit::DISABLED {
         println!(
             "fire-guard arms enabled (limit {}): baseline matrix runs guard-OFF; \
@@ -5602,102 +5779,127 @@ fn handle_batch(args: &CliArgs) -> Result<(), GranmoModelError> {
             print_experiment_report(&guard_run_label, &report);
         }
     }
+
+    // duration hr:min:sec
+    let total_secs = batch_start.elapsed().as_secs();
+    println!(
+        "batch total duration: {:02}:{:02}:{:02}",
+        total_secs / 3600,
+        (total_secs % 3600) / 60,
+        total_secs % 60
+    );
+
     Ok(())
 }
 
 /*
-Alt version draft
-fn handle_predict(args: &CliArgs) -> Result<(), GranmoModelError> {
-    let model_path = args
-        .model_in
+Fast iteration recipe
+```bash
+cargo run --release -- --mode batch-guard \
+  --data /abs/path/Cyber_Bully_Data_binary_class_dedupe_v3.jsonl \
+  --preset p0 --clauses 200 --vote-threshold 80 \
+  --states 50 --specificity 3.0 --vocab-size 1000 --ngram-len 5 \
+  --epochs 4 --seed 42 --workers auto \
+  --guard-limits 0,200,1000 --test-cap 3000
+```
+Lower --states 50 is deliberate: it forces fast specialization,
+so if pathological (specialized) always-firers can exist at all,
+they'll appear here — and the resets line plus the (V vacuous,
+S specialized) breakdown will tell you in minutes whether the
+guard fires on them. If your full-scale run's 44–49 "always"
+clauses turn out all-vacuous, the recorded conclusion is: guard
+correct, nothing to prune at N=200/12 epochs; the depth/epoch
+budget (or vocabulary frequency capping) is the next lever.
+
+One compile note: the summarize_fire_counts signature change
+has exactly one call site (inside print_experiment_report),
+which Edit 6 replaces — the compiler will confirm nothing
+else references it.
+*/
+
+/// batch-guard — the FOCUSED fire-guard iteration mode (Drop 4.2).
+///
+/// Byte-bag only, ONE preset (`--preset`, default p0), one identical
+/// split and seed, one row per `--guard-limits` value (0 = guard-off
+/// baseline). This is the single-variable ladder for tuning the guard
+/// without paying for the full §8 matrix: at production settings the
+/// full batch takes hours; this mode with `--test-cap` and reduced
+/// `--states`/`--epochs` takes minutes.
+///
+/// Reading guide per row: (a) the always-fire breakdown — if the always
+/// population is (mostly) VACUOUS, the guard is working as designed and
+/// has nothing to prune (the lever is depth/epochs, not the guard);
+/// (b) the fire-guard resets line — nonzero resets with a shrinking
+/// SPECIALIZED always-count is the guard doing its job; nonzero resets
+/// with an UNCHANGED specialized count means clauses re-converge to
+/// ubiquitous patterns (argues for vocabulary frequency capping);
+/// (c) best-F1 vs. the guard-off row — the cost/benefit verdict.
+///
+/// CAVEAT (recorded): guard-limit semantics scale with train-split size —
+/// a limit of 2000 against a subsampled train side is proportionally
+/// stricter than against the full corpus. Sweep limits proportionally
+/// when using `--train-percent` to shrink the training side.
+fn handle_batch_guard(args: &CliArgs) -> Result<(), GranmoModelError> {
+    let data_path = args
+        .data_path
         .as_ref()
         .ok_or(GranmoModelError::CliMissingRequiredFlag)?;
-    let text = args
-        .predict_text
-        .as_ref()
-        .ok_or(GranmoModelError::CliMissingRequiredFlag)?;
+    let documents = load_labeled_jsonl(
+        data_path,
+        &args.text_key,
+        &args.label_key,
+        &args.positive_label,
+    )?;
+    let mut split_rng = FastRng::seed(args.seed);
+    let (train_side, mut test_side) =
+        split_dataset(&documents, args.train_percent, &mut split_rng)?;
 
-    let artifact = ModelArtifact::load_from_file(model_path)?;
-    let mut preprocessor = BytePreprocessor::new(artifact.preprocess_profile)?;
-    let processed = preprocessor.process_document(text.as_bytes())?;
+    // Optional eval cap for fast iteration. Applied AFTER the seeded
+    // shuffle-split: deterministic, and the retained prefix is an
+    // unbiased sample because the split already shuffled.
+    if args.test_cap > 0 && test_side.len() > args.test_cap {
+        test_side.truncate(args.test_cap);
+    }
 
-    let vote = artifact.engine.engine_vote_sum(&processed)?;
-    let lut = artifact.engine.engine_build_probability_lut()?;
-    let probability = lut.probability_for_report(vote)?;
-    let is_positive = vote > 0;
-
-    println!("\n============================================================");
-    println!("                    Single Text Inference                   ");
-    println!("============================================================");
-    println!("Input Text:        \"{}\"", text);
-    println!("Engine Model:      {}", artifact.engine.engine_name());
     println!(
-        "Predicted Label:   {}",
-        if is_positive { "POSITIVE (1)" } else { "NEGATIVE (0)" }
+        "batch-guard over {} train / {} test documents (test-cap {}), seed {}, preset {}, limits {:?}",
+        train_side.len(),
+        test_side.len(),
+        args.test_cap,
+        args.seed,
+        args.preset_name,
+        args.guard_limits
     );
-    println!("Signed Vote Sum:   {:+4} votes", vote);
-    println!("Calibrated Prob:   {:.2}%", probability * 100.0);
-    println!("------------------------------------------------------------");
-    println!("Triggered Logic Rules (Explainability Trace):");
 
-    let mut rules_printed = 0usize;
-    match &artifact.engine {
-        ClassifierEngine::ByteConv(conv_engine) => {
-            for clause in 0..conv_engine.conv_clause_count() {
-                if rules_printed >= 10 {
-                    break;
-                }
-                let positions = conv_engine.conv_fired_window_positions(clause, &processed)?;
-                if positions.is_empty() {
-                    continue;
-                }
-                let pattern = conv_engine.conv_describe_clause(clause, 12)?;
-                if pattern.is_empty() {
-                    continue;
-                }
-                let sign = if clause % 2 == 0 { "+ vote" } else { "- veto" };
-                println!(
-                    "  [Clause #{:<2} ({sign})] IF ( {} ) @ byte offsets {:?}",
-                    clause, pattern, positions
-                );
-                rules_printed += 1;
-            }
-        }
-        ClassifierEngine::ByteBag(bag_engine) => {
-            let fired_words = bag_engine.bag_fired_clause_bits(&processed)?;
-            for clause in 0..bag_engine.bag_clause_count() {
-                if rules_printed >= 10 {
-                    break;
-                }
-                let fired_word = fired_words
-                    .get(clause >> 6)
-                    .copied()
-                    .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
-                if fired_word & (1u64 << (clause & 63)) == 0 {
-                    continue;
-                }
-                let pattern = bag_engine.bag_describe_clause(clause, 12)?;
-                if pattern.is_empty() {
-                    continue;
-                }
-                let sign = if clause % 2 == 0 { "+ vote" } else { "- veto" };
-                println!(
-                    "  [Clause #{:<2} ({sign})] IF ( {} )",
-                    clause, pattern
-                );
-                rules_printed += 1;
-            }
-        }
+    // Time Clock
+    let batch_start = std::time::Instant::now();
+
+    for &guard_limit in &args.guard_limits {
+        let mut run_config = args.to_run_config()?;
+        run_config.profile = preset_from_name(&args.preset_name)?;
+        run_config.engine_selection = EngineSelection::ByteBag;
+        run_config.fire_guard_streak_limit = FireGuardStreakLimit::new(guard_limit)?.get()?;
+        let (_trained_engine, report) =
+            run_single_experiment(&train_side, &test_side, &run_config)?;
+        let guard_run_label = if guard_limit == FireGuardStreakLimit::DISABLED {
+            format!("{}+guard-off", args.preset_name)
+        } else {
+            format!("{}+guard-{}", args.preset_name, guard_limit)
+        };
+        print_experiment_report(&guard_run_label, &report);
     }
 
-    if rules_printed == 0 {
-        println!("  [No active specialized clauses fired; baseline vote applied]");
-    }
-
-    println!("============================================================\n");
+    // duration hr:min:sec
+    let total_secs = batch_start.elapsed().as_secs();
+    println!(
+        "batch total duration: {:02}:{:02}:{:02}",
+        total_secs / 3600,
+        (total_secs % 3600) / 60,
+        total_secs % 60
+    );
     Ok(())
 }
-*/
+
 fn handle_predict(args: &CliArgs) -> Result<(), GranmoModelError> {
     let model_path = args
         .model_in
@@ -5718,17 +5920,6 @@ fn handle_predict(args: &CliArgs) -> Result<(), GranmoModelError> {
     let lut = artifact.engine.engine_build_probability_lut()?;
     let probability = lut.probability_for_report(vote)?;
     let label_is_positive = vote > 0;
-
-    // println!("engine: {}", artifact.engine.engine_name());
-    // println!(
-    //     "prediction: {}",
-    //     if label {
-    //         "POSITIVE (1)"
-    //     } else {
-    //         "NEGATIVE (0)"
-    //     }
-    // );
-    // println!("vote sum V = {vote}, probability {probability:.4}");
 
     println!("\n============================================================");
     println!("                    Single Text Inference                   ");
@@ -6924,6 +7115,38 @@ impl ByteBagTM {
             })
     }
 
+    /// Per-clause total of INCLUDED literals (positive + negated),
+    /// popcounted from the two include masks — the specialization
+    /// instrument. A total of 0 means the clause is VACUOUS: it fires
+    /// everywhere by construction (bootstrap state), is deliberately
+    /// exempt from the fire guard, and is a depth/epoch-budget symptom,
+    /// not an always-fire pathology. Reporting tier: read-only,
+    /// O(clauses × mask words).
+    pub fn bag_clause_include_totals(&self) -> Result<Vec<u32>, GranmoModelError> {
+        let mut totals: Vec<u32> = Vec::with_capacity(self.bag_clause_total);
+        for clause in 0..self.bag_clause_total {
+            let (range_start, range_end) = self.bag_mask_word_range(clause)?;
+            let positive_words = self
+                .bag_positive_include_masks
+                .get(range_start..range_end)
+                .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+            let negated_words = self
+                .bag_negated_include_masks
+                .get(range_start..range_end)
+                .ok_or(GranmoModelError::BbgEngineIndexOutOfRange)?;
+            // Checked fold per the arithmetic rules (mathematically the
+            // sum is bounded by 2M <= 130000, far inside u32).
+            let mut include_total: u32 = 0;
+            for word in positive_words.iter().chain(negated_words.iter()) {
+                include_total = include_total
+                    .checked_add(word.count_ones())
+                    .ok_or(GranmoModelError::BbgEngineArithmeticOverflow)?;
+            }
+            totals.push(include_total);
+        }
+        Ok(totals)
+    }
+
     /// Read access to the vocabulary (harness explainability / reporting).
     pub fn bag_vocabulary_ref(&self) -> &ByteBagVocabulary {
         &self.bag_vocabulary
@@ -7321,10 +7544,12 @@ fn main() {
         run_self_check()
     } else {
         match CliArgs::parse(&raw_args) {
+            // Main Dispatch, Read all about it!
             Ok(args) => match args.mode.as_str() {
                 "train" => handle_train(&args),
                 "batch" => handle_batch(&args),
                 "predict" => handle_predict(&args),
+                "batch-guard" => handle_batch_guard(&args),
                 _other => {
                     #[cfg(debug_assertions)]
                     eprintln!("CLI-804: unknown mode '{}'", _other);
@@ -7343,7 +7568,7 @@ fn main() {
 }
 
 // ===========================================================================
-//  Tests
+// Tests
 // ===========================================================================
 
 /*
