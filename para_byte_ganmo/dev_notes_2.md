@@ -153,7 +153,7 @@ saved model artifact to /home/oops/models/byte-conv_1.json
 
 # byte-bag 1
 ```bash
-$ cargo run --release -- \
+cargo run --release -- \
 --mode train --data /home/oops/datasets/hate-speech-detection-curated-dataset/HateSpeechDatasetBalanced_quick.jsonl \
 --text-key text  --label-key label  --positive-label 1 \
 --preset p3  --engine byte-bag \
@@ -519,3 +519,54 @@ Clause Dynamics:
 
 
 ```
+
+
+multiclass test:
+# byte-bag 1
+```bash
+cargo run --release -- \
+--mode train --data /home/oops/datasets/NLP/multiclass_sets/toxic_comments_archive/multiclass_toxic_comments_50000_onlytoxic_v1.jsonl \
+--text-key text  --label-key label  --positive-label 1 \
+--preset p3  --engine byte-bag \
+--ngram-len 5  --vocab-size 4000 \
+--clauses 120  --vote-threshold 50  --states 100 \
+--specificity 5.0  --max-scan 1024  --epochs 2  --seed 42 \
+--train-percent 80  --model-out /home/oops/models/multiclass_toxic_comments_50000_onlytoxic_v1-1.json \
+--log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/multiclass_toxic_comments_50000_onlytoxic_v1.txt \
+--workers auto
+```
+
+
+
+$ cargo run --release -- --mode train   --data  /home/oops/datasets/NLP/mental_health_datasets/BINARY_CLASS/reihanenamdari-mental-health-corpus-archive/mental_health_dedupe_v1.jsonl   --preset p0   --clauses 100 --vote-threshold 60 --states 200   --specificity 3.0 --vocab-size 1000 --ngram-len 5   --epochs 10 --seed 42 --workers auto   --train-percent 80   --model-out /home/oops/models/model_json_reihanenamdari-mental-health_v1.gmb   --log-out /home/oops/code/LOG_reihanenamdari-mental-health_v1.txt
+    Finished `release` profile [optimized] target(s) in 0.00s
+     Running `target/release/para_byte_ganmo --mode train --data /home/oops/datasets/NLP/mental_health_datasets/BINARY_CLASS/reihanenamdari-mental-health-corpus-archive/mental_health_dedupe_v1.jsonl --preset p0 --clauses 100 --vote-threshold 60 --states 200 --specificity 3.0 --vocab-size 1000 --ngram-len 5 --epochs 10 --seed 42 --workers auto --train-percent 80 --model-out /home/oops/models/model_json_reihanenamdari-mental-health_v1.gmb --log-out /home/oops/code/LOG_reihanenamdari-mental-health_v1.txt`
+loaded 27969 labeled documents
+resolved config: HarnessRunConfig { profile: PreprocessProfile { stage_bits: 15 }, engine_selection: ByteConv, patch_size: 5, stride: 2, bag_ngram_len: 5, bag_vocab_size: 1000, n_clauses: 100, vote_threshold: 60, states_per_action: 200, specificity: 3.0, max_scan_bytes: 1024, guarded_include: false, fire_guard_streak_limit: 0, epochs: 10, seed: 42, worker_count: 16 }
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p0           (Engine: byte-conv)
+  Train/Test Split:  22375/5594 samples
+  Training Time:     77.97s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 50.20%
+  Best-F1 Threshold:  V > 3
+  Precision:          0.6685
+  Recall:             0.8129
+  F1-Score:           0.7336
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    1717        1114        
+Actual Pos (1)    517         2246        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 5594 test docs: never 58/100  always 24/100 (24 vacuous, 0 specialized)  p25 0.0%  median 0.0%  p75 26.0%
+  includes/clause: min 0  p25 1  median 1  p75 1  max 1280  (24 clauses vacuous)
+  vacuous vote offset: +2  (13 positive-polarity, 11 negative-polarity vacuous)
+============================================================
+
+misprediction log: appended 2786 records to /home/oops/code/LOG_reihanenamdari-mental-health_v1.txt
+saved model artifact to /home/oops/models/model_json_reihanenamdari-mental-health_v1.gmb

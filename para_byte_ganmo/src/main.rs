@@ -1,4 +1,5 @@
 //! # Byte Granmo Model w/ Parallal Train/Predict Threading — Phase 2 Crate
+//! NLP text classification oriented, for binary (2-class) models only
 //!
 //! Observing: https://github.com/lineality/rust_lang_rules
 //!
@@ -33,6 +34,46 @@
 //! - Production-release: never panics, error paths allocate nothing.
 //! - Debug: `eprintln!` diagnostics gated `#[cfg(debug_assertions)]`.
 //! - Test: `#[cfg(test)]` cargo tests use `assert!` freely.
+
+/*
+TODO: Is this correct?
+
+                           ┌───────────────────────────┐
+                           │    Corpus Size (D_train)  │
+                           └─────────────┬─────────────┘
+                                         │
+                 ┌───────────────────────┴───────────────────────┐
+                 ▼                                               ▼
+      Small / Noisy (D < 20k)                         Large / Clean (D > 50k)
+┌───────────────────────────────────┐           ┌───────────────────────────────────┐
+│ States (N):       40 – 80         │           │ States (N):       120 – 200       │
+│ Epochs:           10 – 20         │           │ Epochs:           8 – 15          │
+│ Vote Target (T):  C / 4           │           │ Vote Target (T):  C / 3           │
+│ Specificity (s):  2.5 – 3.5       │           │ Specificity (s):  3.0 – 5.0       │
+│ Vocab Size (M):   1000 – 2000     │           │ Vocab Size (M):   4000 – 8000     │
+└───────────────────────────────────┘           └───────────────────────────────────┘
+
+
+PROBLEM DOMAIN ALIGNMENT
+┌──────────────────────────────────────────────┬──────────────────────────────────────────────┐
+│                  ByteBagTM                   │                  ByteConvTM                  │
+├──────────────────────────────────────────────┼──────────────────────────────────────────────┤
+│ • Social media text & bullying detection     │ • Network packet payload inspection          │
+│ • Document topic & sentiment classification  │ • Binary executable malware header detection │
+│ • Multi-lingual / code-switched text         │ • Low-power IoT time-series anomaly detection│
+│ • Long-range bag-of-tokens semantics         │ • Audio edge-detection & frame analysis      │
+└──────────────────────────────────────────────┴──────────────────────────────────────────────┘
+
+
+Heterogeneous Clause Bank Layout:
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│ Clause Index:   0 ... 399 (Positive Polarity)        │ 400 ... 599 (Negative Polarity)  │
+├──────────────────────────┬───────────────────────────┼──────────────────┬───────────────┤
+│ Species A: "Anchors"     │ Species B: "Scouts"       │ Species A:       │ Species B:    │
+│ 70% (N=160, s=4.5)       │ 30% (N=40, s=2.0)         │ "Anchors" (70%)  │ "Scouts" (30%)│
+│ Slow, noise-resistant    │ Fast, plastic, exploratory│                  │               │
+└──────────────────────────┴───────────────────────────┴──────────────────┴───────────────┘
+*/
 
 #![forbid(unsafe_code)]
 
@@ -5445,35 +5486,30 @@ fn summarize_include_totals(clause_include_totals: &[u32]) -> String {
     )
 }
 
-// /// Prints one experiment report (reporting tier: println is this code's
-// /// output channel, not a diagnostic leak).
-// fn print_experiment_report(run_label: &str, report: &ExperimentReport) {
-//     println!(
-//         "--- run: {run_label} [engine: {}] ---",
-//         report.engine_name_reported
-//     );
-//     println!(
-//         "  train/test: {}/{}   train time: {:.2}s",
-//         report.train_count, report.test_count, report.train_seconds
-//     );
-//     println!("  accuracy @ V>0:   {:.4}", report.accuracy_at_zero);
-//     let best = &report.best_f1_row;
-//     println!(
-//         "  best-F1 threshold {}: P {:.4} R {:.4} F1 {:.4}  (TP {} FP {} TN {} FN {})",
-//         best.decision_threshold,
-//         best.precision,
-//         best.recall,
-//         best.f1,
-//         best.true_positives,
-//         best.false_positives,
-//         best.true_negatives,
-//         best.false_negatives
-//     );
-//     println!(
-//         "  {}",
-//         summarize_fire_counts(&report.clause_fire_counts, report.test_count)
-//     );
-// }
+/// Net constant vote offset contributed by VACUOUS clauses. A vacuous
+/// clause fires on EVERY document, so it adds a constant +1 (even index,
+/// positive polarity) or −1 (odd index) to every vote sum. Reported so
+/// the operator can decompose the optimal decision threshold into
+/// structural offset vs. genuinely learned class asymmetry. Reporting
+/// tier; i64 arithmetic cannot overflow (clause count <= 65534).
+fn summarize_vacuous_vote_offset(clause_include_totals: &[u32]) -> String {
+    let mut vacuous_positive_polarity: i64 = 0;
+    let mut vacuous_negative_polarity: i64 = 0;
+    for (clause, &include_total) in clause_include_totals.iter().enumerate() {
+        if include_total == 0 {
+            if clause % 2 == 0 {
+                vacuous_positive_polarity += 1;
+            } else {
+                vacuous_negative_polarity += 1;
+            }
+        }
+    }
+    let net_offset = vacuous_positive_polarity - vacuous_negative_polarity;
+    format!(
+        "vacuous vote offset: {:+}  ({} positive-polarity, {} negative-polarity vacuous)",
+        net_offset, vacuous_positive_polarity, vacuous_negative_polarity
+    )
+}
 
 /// Prints a formatted classification evaluation report with metrics,
 /// a 2x2 confusion matrix grid, and clause fire-rate diagnostics.
@@ -5525,6 +5561,10 @@ fn print_experiment_report(run_label: &str, report: &ExperimentReport) {
     println!(
         "  {}",
         summarize_include_totals(&report.clause_include_totals)
+    );
+    println!(
+        "  {}",
+        summarize_vacuous_vote_offset(&report.clause_include_totals)
     );
     // Guard activity is printed UNCONDITIONALLY whenever the guard was
     // armed: "resets 0" is a finding (guard ran, found nothing to prune),
