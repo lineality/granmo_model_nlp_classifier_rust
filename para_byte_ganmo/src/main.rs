@@ -5515,6 +5515,7 @@ fn summarize_vacuous_vote_offset(clause_include_totals: &[u32]) -> String {
 /// a 2x2 confusion matrix grid, and clause fire-rate diagnostics.
 fn print_experiment_report(run_label: &str, report: &ExperimentReport) {
     let best = &report.best_f1_row;
+    let total_secs = report.test_count;
 
     println!("\n============================================================");
     println!("               Classification Evaluation Report             ");
@@ -5527,7 +5528,13 @@ fn print_experiment_report(run_label: &str, report: &ExperimentReport) {
         "  Train/Test Split:  {}/{} samples",
         report.train_count, report.test_count
     );
-    println!("  Training Time:     {:.2}s", report.train_seconds);
+    // println!("  Training Time:     {:.2}s", report.train_seconds);
+    println!(
+        "Training Time Duration (h:m:s): {:02}:{:02}:{:02}",
+        total_secs / 3600,
+        (total_secs % 3600) / 60,
+        total_secs % 60
+    );
     println!("------------------------------------------------------------");
     println!(
         "  Accuracy (@ V > 0): {:.2}%",
@@ -5823,7 +5830,7 @@ fn handle_batch(args: &CliArgs) -> Result<(), GranmoModelError> {
     // duration hr:min:sec
     let total_secs = batch_start.elapsed().as_secs();
     println!(
-        "batch total duration: {:02}:{:02}:{:02}",
+        "batch total duration (h:m:s): {:02}:{:02}:{:02}",
         total_secs / 3600,
         (total_secs % 3600) / 60,
         total_secs % 60
@@ -5932,7 +5939,7 @@ fn handle_batch_guard(args: &CliArgs) -> Result<(), GranmoModelError> {
     // duration hr:min:sec
     let total_secs = batch_start.elapsed().as_secs();
     println!(
-        "batch total duration: {:02}:{:02}:{:02}",
+        "batch total duration (h:m:s): {:02}:{:02}:{:02}",
         total_secs / 3600,
         (total_secs % 3600) / 60,
         total_secs % 60

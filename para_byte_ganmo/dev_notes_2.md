@@ -106,7 +106,7 @@ cargo run --release -- \
 
 
 # byte-conv 1
-
+s
 ```bash
 $ cargo run --release -- \
 --mode train --data /home/oops/datasets/hate-speech-detection-curated-dataset/HateSpeechDatasetBalanced_quick.jsonl \
@@ -117,7 +117,8 @@ $ cargo run --release -- \
 --specificity 5.0  --max-scan 1024  --epochs 5  --seed 42 \
 --train-percent 80  --model-out /home/oops/models/byte-conv_1.json \
 --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/byte_conv_logout.txt \
---workers auto
+--workers auto --guarded
+
    Compiling para_byte_ganmo v0.1.0 (/home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo)
     Finished `release` profile [optimized] target(s) in 5.89s
      Running `target/release/para_byte_ganmo --mode train --data /home/oops/datasets/hate-speech-detection-curated-dataset/HateSpeechDatasetBalanced_quick.jsonl --text-key text --label-key label --positive-label 1 --preset p3 --engine byte-conv --patch 5 --stride 2 --guarded --clauses 120 --vote-threshold 50 --states 100 --specificity 5.0 --max-scan 1024 --epochs 5 --seed 42 --train-percent 80 --model-out /home/oops/models/byte-conv_1.json --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/byte_conv_logout.txt --workers auto`
@@ -570,3 +571,571 @@ Clause Dynamics:
 
 misprediction log: appended 2786 records to /home/oops/code/LOG_reihanenamdari-mental-health_v1.txt
 saved model artifact to /home/oops/models/model_json_reihanenamdari-mental-health_v1.gmb
+
+
+
+...
+
+
+IMDB sentiment
+
+```bash
+cargo run --release -- --mode batch \
+  --data /home/oops/Downloads/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --clauses 600 --vote-threshold 160 --stride 1 --patch 5 \
+  --specificity 3.0 --states 200 --vocab-size 4000 --ngram-len 5 \
+  --epochs 4 --seed 42 --workers auto \
+  --fire-guard 1000
+```
+
+```bash
+$ cargo run --release -- --mode batch \
+  --data /home/oops/Downloads/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --clauses 600 --vote-threshold 160 --stride 1 --patch 5 \
+  --specificity 3.0 --states 200 --vocab-size 4000 --ngram-len 5 \
+  --epochs 4 --seed 42 --workers auto \
+  --fire-guard 1000
+    Finished `release` profile [optimized] target(s) in 0.00s
+     Running `target/release/para_byte_ganmo --mode batch --data /home/oops/Downloads/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl --clauses 600 --vote-threshold 160 --stride 1 --patch 5 --specificity 3.0 --states 200 --vocab-size 4000 --ngram-len 5 --epochs 4 --seed 42 --workers auto --fire-guard 1000`
+batch over 39656 train / 9914 test documents, seed 42
+fire-guard arms enabled (limit 1000): baseline matrix runs guard-OFF; byte-bag guard-ON rows follow as '<preset>+fireguard'
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        raw          (Engine: byte-conv)
+  Train/Test Split:  39656/9914 samples
+  Training Time:     145.46s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 53.78%
+  Best-F1 Threshold:  V > -69
+  Precision:          0.5043
+  Recall:             0.9875
+  F1-Score:           0.6677
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    142         4813        
+Actual Pos (1)    62          4897        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 165/600  always 121/600 (121 vacuous, 0 specialized)  p25 0.0%  median 11.3%  p75 31.0%
+  includes/clause: min 0  p25 1  median 1  p75 1  max 291  (121 clauses vacuous)
+  vacuous vote offset: -35  (43 positive-polarity, 78 negative-polarity vacuous)
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        raw          (Engine: byte-bag)
+  Train/Test Split:  39656/9914 samples
+  Training Time:     131.60s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 71.62%
+  Best-F1 Threshold:  V > -41
+  Precision:          0.7620
+  Recall:             0.8298
+  F1-Score:           0.7945
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    3670        1285        
+Actual Pos (1)    844         4115        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 0/600  always 93/600 (93 vacuous, 0 specialized)  p25 8.1%  median 14.7%  p75 25.0%
+  includes/clause: min 0  p25 1  median 1  p75 1  max 48  (93 clauses vacuous)
+  vacuous vote offset: -23  (35 positive-polarity, 58 negative-polarity vacuous)
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p0           (Engine: byte-conv)
+  Train/Test Split:  39656/9914 samples
+  Training Time:     140.24s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 50.11%
+  Best-F1 Threshold:  V > -87
+  Precision:          0.5004
+  Recall:             0.9996
+  F1-Score:           0.6669
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    5           4950        
+Actual Pos (1)    2           4957        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 194/600  always 131/600 (130 vacuous, 1 specialized)  p25 0.0%  median 4.0%  p75 25.9%
+  includes/clause: min 0  p25 1  median 1  p75 1  max 461  (130 clauses vacuous)
+  vacuous vote offset: -54  (38 positive-polarity, 92 negative-polarity vacuous)
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p0           (Engine: byte-bag)
+  Train/Test Split:  39656/9914 samples
+  Training Time:     133.25s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 74.43%
+  Best-F1 Threshold:  V > -33
+  Precision:          0.7645
+  Recall:             0.8300
+  F1-Score:           0.7959
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    3687        1268        
+Actual Pos (1)    843         4116        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 0/600  always 96/600 (96 vacuous, 0 specialized)  p25 8.3%  median 14.9%  p75 25.3%
+  includes/clause: min 0  p25 1  median 1  p75 1  max 46  (96 clauses vacuous)
+  vacuous vote offset: -12  (42 positive-polarity, 54 negative-polarity vacuous)
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p1           (Engine: byte-conv)
+  Train/Test Split:  39656/9914 samples
+  Training Time:     140.77s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 56.47%
+  Best-F1 Threshold:  V > -59
+  Precision:          0.5023
+  Recall:             0.9946
+  F1-Score:           0.6675
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    68          4887        
+Actual Pos (1)    27          4932        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 165/600  always 115/600 (115 vacuous, 0 specialized)  p25 0.0%  median 9.0%  p75 30.9%
+  includes/clause: min 0  p25 1  median 1  p75 1  max 429  (115 clauses vacuous)
+  vacuous vote offset: -19  (48 positive-polarity, 67 negative-polarity vacuous)
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p1           (Engine: byte-bag)
+  Train/Test Split:  39656/9914 samples
+  Training Time:     131.35s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 77.59%
+  Best-F1 Threshold:  V > -23
+  Precision:          0.7452
+  Recall:             0.8475
+  F1-Score:           0.7931
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    3518        1437        
+Actual Pos (1)    756         4203        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 0/600  always 90/600 (90 vacuous, 0 specialized)  p25 8.1%  median 14.2%  p75 24.9%
+  includes/clause: min 0  p25 1  median 1  p75 1  max 52  (90 clauses vacuous)
+  vacuous vote offset: +0  (45 positive-polarity, 45 negative-polarity vacuous)
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p2           (Engine: byte-conv)
+  Train/Test Split:  39656/9914 samples
+  Training Time:     139.30s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 50.26%
+  Best-F1 Threshold:  V > -80
+  Precision:          0.5005
+  Recall:             0.9992
+  F1-Score:           0.6669
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    9           4946        
+Actual Pos (1)    4           4955        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 218/600  always 127/600 (127 vacuous, 0 specialized)  p25 0.0%  median 0.3%  p75 22.0%
+  includes/clause: min 0  p25 1  median 1  p75 1  max 344  (127 clauses vacuous)
+  vacuous vote offset: -49  (39 positive-polarity, 88 negative-polarity vacuous)
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p2           (Engine: byte-bag)
+  Train/Test Split:  39656/9914 samples
+  Training Time:     131.89s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 73.65%
+  Best-F1 Threshold:  V > -42
+  Precision:          0.7374
+  Recall:             0.8625
+  F1-Score:           0.7951
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    3432        1523        
+Actual Pos (1)    682         4277        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 0/600  always 84/600 (84 vacuous, 0 specialized)  p25 8.3%  median 14.7%  p75 25.3%
+  includes/clause: min 0  p25 1  median 1  p75 1  max 48  (84 clauses vacuous)
+  vacuous vote offset: -16  (34 positive-polarity, 50 negative-polarity vacuous)
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        raw+fireguard (Engine: byte-bag)
+  Train/Test Split:  39656/9914 samples
+  Training Time:     132.46s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 71.62%
+  Best-F1 Threshold:  V > -41
+  Precision:          0.7620
+  Recall:             0.8298
+  F1-Score:           0.7945
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    3670        1285        
+Actual Pos (1)    844         4115        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 0/600  always 93/600 (93 vacuous, 0 specialized)  p25 8.1%  median 14.7%  p75 25.0%
+  includes/clause: min 0  p25 1  median 1  p75 1  max 48  (93 clauses vacuous)
+  vacuous vote offset: -23  (35 positive-polarity, 58 negative-polarity vacuous)
+  fire-guard: limit 1000, resets 0
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p0+fireguard (Engine: byte-bag)
+  Train/Test Split:  39656/9914 samples
+  Training Time:     131.13s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 74.43%
+  Best-F1 Threshold:  V > -33
+  Precision:          0.7645
+  Recall:             0.8300
+  F1-Score:           0.7959
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    3687        1268        
+Actual Pos (1)    843         4116        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 0/600  always 96/600 (96 vacuous, 0 specialized)  p25 8.3%  median 14.9%  p75 25.3%
+  includes/clause: min 0  p25 1  median 1  p75 1  max 46  (96 clauses vacuous)
+  vacuous vote offset: -12  (42 positive-polarity, 54 negative-polarity vacuous)
+  fire-guard: limit 1000, resets 0
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p1+fireguard (Engine: byte-bag)
+  Train/Test Split:  39656/9914 samples
+  Training Time:     141.09s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 77.59%
+  Best-F1 Threshold:  V > -23
+  Precision:          0.7452
+  Recall:             0.8475
+  F1-Score:           0.7931
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    3518        1437        
+Actual Pos (1)    756         4203        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 0/600  always 90/600 (90 vacuous, 0 specialized)  p25 8.1%  median 14.2%  p75 24.9%
+  includes/clause: min 0  p25 1  median 1  p75 1  max 52  (90 clauses vacuous)
+  vacuous vote offset: +0  (45 positive-polarity, 45 negative-polarity vacuous)
+  fire-guard: limit 1000, resets 0
+============================================================
+
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p2+fireguard (Engine: byte-bag)
+  Train/Test Split:  39656/9914 samples
+  Training Time:     131.95s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 73.65%
+  Best-F1 Threshold:  V > -42
+  Precision:          0.7374
+  Recall:             0.8625
+  F1-Score:           0.7951
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    3432        1523        
+Actual Pos (1)    682         4277        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 0/600  always 84/600 (84 vacuous, 0 specialized)  p25 8.3%  median 14.7%  p75 25.3%
+  includes/clause: min 0  p25 1  median 1  p75 1  max 48  (84 clauses vacuous)
+  vacuous vote offset: -16  (34 positive-polarity, 50 negative-polarity vacuous)
+  fire-guard: limit 1000, resets 0
+============================================================
+
+batch total duration: 00:27:54
+
+```
+
+next:
+
+cargo run --release -- --mode train \
+  --data /home/oops/Downloads/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --engine byte-bag --preset p0 \
+  --clauses 600 --vote-threshold 180 \
+  --states 100 --specificity 4.0 \
+  --vocab-size 6000 --ngram-len 4 \
+  --epochs 10 --seed 42 --workers auto
+
+
+```bash
+cargo run --release -- --mode train \
+--data /home/oops/Downloads/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset p0 \
+  --engine byte-bag \
+  --clauses 600 \
+  --vote-threshold 180 \
+  --states 100 \
+  --specificity 4.0 \
+  --vocab-size 6000 \
+  --ngram-len 4 \
+  --epochs 10 \
+  --seed 42 \
+  --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/imdbtest3.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt
+  ```
+
+$ cargo run --release -- --mode train \
+--data /home/oops/Downloads/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset raw \
+  --engine byte-bag \
+  --clauses 600 \
+  --vote-threshold 180 \
+  --states 100 \
+  --specificity 4.0 \
+  --vocab-size 6000 \
+  --ngram-len 4 \
+  --epochs 10 \
+  --seed 42 \
+  --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/imdbtest3.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt
+    Finished `release` profile [optimized] target(s) in 0.02s
+     Running `target/release/para_byte_ganmo --mode train --data /home/oops/Downloads/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl --preset raw --engine byte-bag --clauses 600 --vote-threshold 180 --states 100 --specificity 4.0 --vocab-size 6000 --ngram-len 4 --epochs 10 --seed 42 --workers auto --train-percent 80 --model-out /home/oops/models/imdbtest3.gmb --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt`
+loaded 49570 labeled documents
+resolved config: HarnessRunConfig { profile: PreprocessProfile { stage_bits: 0 }, engine_selection: ByteBag, patch_size: 5, stride: 2, bag_ngram_len: 4, bag_vocab_size: 6000, n_clauses: 600, vote_threshold: 180, states_per_action: 100, specificity: 4.0, max_scan_bytes: 1024, guarded_include: false, fire_guard_streak_limit: 0, epochs: 10, seed: 42, worker_count: 16 }
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        raw          (Engine: byte-bag)
+  Train/Test Split:  39656/9914 samples
+  Training Time:     404.15s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 82.31%
+  Best-F1 Threshold:  V > -4
+  Precision:          0.8048
+  Recall:             0.8463
+  F1-Score:           0.8250
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    3937        1018        
+Actual Pos (1)    762         4197        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 0/600  always 3/600 (3 vacuous, 0 specialized)  p25 18.0%  median 20.1%  p75 22.1%
+  includes/clause: min 0  p25 37  median 45  p75 52  max 67  (3 clauses vacuous)
+  vacuous vote offset: +3  (3 positive-polarity, 0 negative-polarity vacuous)
+============================================================
+
+misprediction log: appended 1754 records to /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt
+saved model artifact to /home/oops/models/imdbtest3.gmb
+
+$ cargo run --release -- --mode train \
+--data /home/oops/Downloads/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset p0 \
+  --engine byte-bag \
+  --clauses 600 \
+  --vote-threshold 180 \
+  --states 100 \
+  --specificity 4.0 \
+  --vocab-size 6000 \
+  --ngram-len 4 \
+  --epochs 10 \
+  --seed 42 \
+  --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/imdbtest3.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt
+    Finished `release` profile [optimized] target(s) in 0.00s
+     Running `target/release/para_byte_ganmo --mode train --data /home/oops/Downloads/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl --preset p0 --engine byte-bag --clauses 600 --vote-threshold 180 --states 100 --specificity 4.0 --vocab-size 6000 --ngram-len 4 --epochs 10 --seed 42 --workers auto --train-percent 80 --model-out /home/oops/models/imdbtest3.gmb --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt`
+loaded 49570 labeled documents
+resolved config: HarnessRunConfig { profile: PreprocessProfile { stage_bits: 15 }, engine_selection: ByteBag, patch_size: 5, stride: 2, bag_ngram_len: 4, bag_vocab_size: 6000, n_clauses: 600, vote_threshold: 180, states_per_action: 100, specificity: 4.0, max_scan_bytes: 1024, guarded_include: false, fire_guard_streak_limit: 0, epochs: 10, seed: 42, worker_count: 16 }
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p0           (Engine: byte-bag)
+  Train/Test Split:  39656/9914 samples
+  Training Time:     391.73s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 81.95%
+  Best-F1 Threshold:  V > -5
+  Precision:          0.8016
+  Recall:             0.8435
+  F1-Score:           0.8220
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    3920        1035        
+Actual Pos (1)    776         4183        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 0/600  always 6/600 (6 vacuous, 0 specialized)  p25 18.2%  median 20.1%  p75 22.2%
+  includes/clause: min 0  p25 36  median 43  p75 49  max 65  (6 clauses vacuous)
+  vacuous vote offset: +6  (6 positive-polarity, 0 negative-polarity vacuous)
+============================================================
+
+misprediction log: appended 1789 records to /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt
+saved model artifact to /home/oops/models/imdbtest3.gmb
+
+
+p1
+
+cargo run --release -- --mode train \
+--data /home/oops/Downloads/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset p1 \
+  --engine byte-bag \
+  --clauses 600 \
+  --vote-threshold 180 \
+  --states 100 \
+  --specificity 4.0 \
+  --vocab-size 6000 \
+  --ngram-len 4 \
+  --epochs 10 \
+  --seed 42 \
+  --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/imdbtest3.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt
+
+
+
+$ cargo run --release -- --mode train \
+--data /home/oops/Downloads/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset p1 \
+  --engine byte-bag \
+  --clauses 600 \
+  --vote-threshold 180 \
+  --states 100 \
+  --specificity 4.0 \
+  --vocab-size 6000 \
+  --ngram-len 4 \
+  --epochs 10 \
+  --seed 42 \
+  --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/imdbtest3.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt
+    Finished `release` profile [optimized] target(s) in 0.02s
+     Running `target/release/para_byte_ganmo --mode train --data /home/oops/Downloads/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl --preset p1 --engine byte-bag --clauses 600 --vote-threshold 180 --states 100 --specificity 4.0 --vocab-size 6000 --ngram-len 4 --epochs 10 --seed 42 --workers auto --train-percent 80 --model-out /home/oops/models/imdbtest3.gmb --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt`
+loaded 49570 labeled documents
+resolved config: HarnessRunConfig { profile: PreprocessProfile { stage_bits: 7 }, engine_selection: ByteBag, patch_size: 5, stride: 2, bag_ngram_len: 4, bag_vocab_size: 6000, n_clauses: 600, vote_threshold: 180, states_per_action: 100, specificity: 4.0, max_scan_bytes: 1024, guarded_include: false, fire_guard_streak_limit: 0, epochs: 10, seed: 42, worker_count: 16 }
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p1           (Engine: byte-bag)
+  Train/Test Split:  39656/9914 samples
+  Training Time:     392.07s
+------------------------------------------------------------
+  Accuracy (@ V > 0): 82.29%
+  Best-F1 Threshold:  V > -6
+  Precision:          0.7939
+  Recall:             0.8592
+  F1-Score:           0.8253
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    3849        1106        
+Actual Pos (1)    698         4261        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 0/600  always 3/600 (3 vacuous, 0 specialized)  p25 17.8%  median 19.9%  p75 22.0%
+  includes/clause: min 0  p25 38  median 45  p75 51  max 69  (3 clauses vacuous)
+  vacuous vote offset: +3  (3 positive-polarity, 0 negative-polarity vacuous)
+============================================================
+
+misprediction log: appended 1756 records to /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt
+saved model artifact to /home/oops/models/imdbtest3.gmb
+
+vs.
+
+
+cargo run --release -- --mode train \
+  --data /home/oops/Downloads/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --engine byte-bag 
+  --preset p0 \
+  --clauses 800 
+  --vote-threshold 220 \
+  --states 120 
+  --specificity 4.5 \
+  --vocab-size 8000 
+  --ngram-len 5 \
+  --epochs 12 
+  --seed 42 
+  --workers auto
+
+raw
+```bash
+cargo run --release -- --mode train \
+--data /home/oops/Downloads/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset raw \
+  --engine byte-bag \
+  --clauses 800 \
+  --vote-threshold 220 \
+  --states 120 \
+  --specificity 4.5 \
+  --vocab-size 8000 \
+  --ngram-len 5 \
+  --epochs 12 \
+  --seed 42 \
+  --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/imdbtest_4.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt
+  ```
