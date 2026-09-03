@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "para_byte_granmo"
+name = "suite_granmo"
 version = "0.1.0"

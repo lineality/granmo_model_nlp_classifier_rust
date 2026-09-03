@@ -712,3 +712,326 @@ cargo run --release -- --mode train \
   --model-out /home/oops/models/test.gmb \
   --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt
 ```
+
+
+/home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl
+
+
+
+cargo run --release -- --mode train \
+  --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset raw  --engine byte-bag \
+  --clauses 150 --vote-threshold 80 --states 200 \
+  --specificity 4.0 --vocab-size 5000 --ngram-len 5 \
+  --epochs 12 --seed 42 --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/test.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt
+
+
+
+cargo run --release -- --mode train \
+  --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset raw  --engine byte-bag \
+  --clauses 160 --vote-threshold 90 --states 200 \
+  --specificity 4.0 --vocab-size 5000 --ngram-len 5 \
+  --epochs 18 --seed 42 --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/test.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt
+
+$ cargo run --release -- --mode train \
+  --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset raw  --engine byte-bag \
+  --clauses 150 --vote-threshold 80 --states 200 \
+  --specificity 4.0 --vocab-size 5000 --ngram-len 5 \
+  --epochs 12 --seed 42 --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/test.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt
+   Compiling para_byte_granmo v0.1.0 (/home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo)
+    Finished `release` profile [optimized] target(s) in 5.74s
+     Running `target/release/para_byte_granmo --mode train --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl --preset raw --engine byte-bag --clauses 150 --vote-threshold 80 --states 200 --specificity 4.0 --vocab-size 5000 --ngram-len 5 --epochs 12 --seed 42 --workers auto --train-percent 80 --model-out /home/oops/models/test.gmb --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt`
+loaded 49570 labeled documents
+resolved config: HarnessRunConfig { profile: PreprocessProfile { stage_bits: 0 }, engine_selection: ByteBag, patch_size: 5, stride: 2, bag_ngram_len: 5, bag_vocab_size: 5000, n_clauses: 150, vote_threshold: 80, states_per_action: 200, specificity: 4.0, max_scan_bytes: 1024, guarded_include: false, fire_guard_streak_limit: 0, epochs: 12, seed: 42, worker_count: 16 }
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        raw          (Engine: byte-bag)
+  Train/Test Split:  39656/9914 samples
+Training Time Duration (h:m:s): 02:45:14
+------------------------------------------------------------
+  Accuracy (@ V > 0): 80.08%
+  Best-F1 Threshold:  V > -5
+  Precision:          0.7494
+  Recall:             0.8697
+  F1-Score:           0.8051
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    3513        1442        
+Actual Pos (1)    646         4313        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 0/150  always 0/150 (0 vacuous, 0 specialized)  p25 17.1%  median 18.2%  p75 19.2%
+  includes/clause: min 1  p25 49  median 59  p75 66  max 78  (0 clauses vacuous)
+  vacuous vote offset: +0  (0 positive-polarity, 0 negative-polarity vacuous)
+============================================================
+
+misprediction log: appended 1975 records to /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt
+saved model artifact to /home/oops/models/test.gmb
+oops@fedora:~/code/granmo_model_nlp_classifier_rust/para_byte_ganmo$ cargo run --release -- --mode train \
+  --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset raw  --engine byte-bag \
+  --clauses 160 --vote-threshold 90 --states 200 \
+  --specificity 4.0 --vocab-size 5000 --ngram-len 5 \
+  --epochs 18 --seed 42 --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/test.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt
+    Finished `release` profile [optimized] target(s) in 0.00s
+     Running `target/release/para_byte_granmo --mode train --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl --preset raw --engine byte-bag --clauses 160 --vote-threshold 90 --states 200 --specificity 4.0 --vocab-size 5000 --ngram-len 5 --epochs 18 --seed 42 --workers auto --train-percent 80 --model-out /home/oops/models/test.gmb --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt`
+loaded 49570 labeled documents
+resolved config: HarnessRunConfig { profile: PreprocessProfile { stage_bits: 0 }, engine_selection: ByteBag, patch_size: 5, stride: 2, bag_ngram_len: 5, bag_vocab_size: 5000, n_clauses: 160, vote_threshold: 90, states_per_action: 200, specificity: 4.0, max_scan_bytes: 1024, guarded_include: false, fire_guard_streak_limit: 0, epochs: 18, seed: 42, worker_count: 16 }
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        raw          (Engine: byte-bag)
+  Train/Test Split:  39656/9914 samples
+Training Time Duration (h:m:s): 02:45:14
+------------------------------------------------------------
+  Accuracy (@ V > 0): 79.58%
+  Best-F1 Threshold:  V > -3
+  Precision:          0.7597
+  Recall:             0.8504
+  F1-Score:           0.8025
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    3621        1334        
+Actual Pos (1)    742         4217        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 0/160  always 2/160 (2 vacuous, 0 specialized)  p25 17.7%  median 18.7%  p75 19.7%
+  includes/clause: min 0  p25 52  median 61  p75 68  max 81  (2 clauses vacuous)
+  vacuous vote offset: +2  (2 positive-polarity, 0 negative-polarity vacuous)
+============================================================
+
+misprediction log: appended 2024 records to /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test.txt
+saved model artifact to /home/oops/models/test.gmb
+oops@fedora:~/code/granmo_model_nlp_classifier_rust/para_byte_ganmo$
+
+
+/////
+
+$ cargo run --release -- --mode train \
+  --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset p0 --engine byte-bag \
+  --clauses 200 --vote-threshold 50 --states 100 \
+  --specificity 3.5 --vocab-size 8000 --ngram-len 5 \
+  --max-scan 4096 --epochs 8 --seed 42 --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/imdb_p0_scan4k.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_scan4k.txt
+    Finished `release` profile [optimized] target(s) in 0.00s
+     Running `target/release/para_byte_granmo --mode train --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl --preset p0 --engine byte-bag --clauses 200 --vote-threshold 50 --states 100 --specificity 3.5 --vocab-size 8000 --ngram-len 5 --max-scan 4096 --epochs 8 --seed 42 --workers auto --train-percent 80 --model-out /home/oops/models/imdb_p0_scan4k.gmb --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_scan4k.txt`
+loaded 49570 labeled documents
+resolved config: HarnessRunConfig { profile: PreprocessProfile { stage_bits: 15 }, engine_selection: ByteBag, patch_size: 5, stride: 2, bag_ngram_len: 5, bag_vocab_size: 8000, n_clauses: 200, vote_threshold: 50, states_per_action: 100, specificity: 3.5, max_scan_bytes: 4096, guarded_include: false, fire_guard_streak_limit: 0, epochs: 8, seed: 42, worker_count: 16 }
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p0           (Engine: byte-bag)
+  Train/Test Split:  39656/9914 samples
+Training Time Duration (h:m:s): 02:45:14
+------------------------------------------------------------
+  Accuracy (@ V > 0): 83.01%
+  Best-F1 Threshold:  V > -2
+  Precision:          0.8120
+  Recall:             0.8518
+  F1-Score:           0.8314
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    3977        978         
+Actual Pos (1)    735         4224        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 0/200  always 8/200 (8 vacuous, 0 specialized)  p25 13.7%  median 22.6%  p75 26.8%
+  includes/clause: min 0  p25 1  median 35  p75 41  max 63  (8 clauses vacuous)
+  vacuous vote offset: +6  (7 positive-polarity, 1 negative-polarity vacuous)
+============================================================
+
+misprediction log: appended 1684 records to /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_scan4k.txt
+saved model artifact to /home/oops/models/imdb_p0_scan4k.gmb
+
+
+///////////
+
+```bash
+cargo run --release -- --mode train \
+  --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset p0 \
+  --engine byte-bag \
+  --clauses 160 \
+  --vote-threshold 45 \
+  --states 200 \
+  --specificity 5.0 \
+  --vocab-size 5000 \
+  --ngram-len 5 \
+  --max-scan 3072 \
+  --epochs 10 \
+  --seed 42 \
+  --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/test_p0.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test_p0.txt
+```
+
+$ cargo run --release -- --mode train \
+  --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset p0 \
+  --engine byte-bag \
+  --clauses 160 \
+  --vote-threshold 45 \
+  --states 200 \
+  --specificity 5.0 \
+  --vocab-size 5000 \
+  --ngram-len 5 \
+  --max-scan 3072 \
+  --epochs 10 \
+  --seed 42 \
+  --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/test_p0.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test_p0.txt
+    Finished `release` profile [optimized] target(s) in 0.00s
+     Running `target/release/para_byte_granmo --mode train --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl --preset p0 --engine byte-bag --clauses 160 --vote-threshold 45 --states 200 --specificity 5.0 --vocab-size 5000 --ngram-len 5 --max-scan 3072 --epochs 10 --seed 42 --workers auto --train-percent 80 --model-out /home/oops/models/test_p0.gmb --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test_p0.txt`
+loaded 49570 labeled documents
+resolved config: HarnessRunConfig { profile: PreprocessProfile { stage_bits: 15 }, engine_selection: ByteBag, patch_size: 5, stride: 2, bag_ngram_len: 5, bag_vocab_size: 5000, n_clauses: 160, vote_threshold: 45, states_per_action: 200, specificity: 5.0, max_scan_bytes: 3072, guarded_include: false, fire_guard_streak_limit: 0, epochs: 10, seed: 42, worker_count: 16 }
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p0           (Engine: byte-bag)
+  Train/Test Split:  39656/9914 samples
+Training Time Duration (h:m:s): 02:45:14
+------------------------------------------------------------
+  Accuracy (@ V > 0): 82.66%
+  Best-F1 Threshold:  V > -1
+  Precision:          0.8275
+  Recall:             0.8254
+  F1-Score:           0.8265
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    4102        853         
+Actual Pos (1)    866         4093        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 0/160  always 2/160 (2 vacuous, 0 specialized)  p25 17.6%  median 19.0%  p75 20.0%
+  includes/clause: min 0  p25 37  median 41  p75 45  max 60  (2 clauses vacuous)
+  vacuous vote offset: +0  (1 positive-polarity, 1 negative-polarity vacuous)
+============================================================
+
+misprediction log: appended 1719 records to /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/test_p0.txt
+saved model artifact to /home/oops/models/test_p0.gmb
+
+
+
+////
+
+
+cargo run --release -- --mode train \
+  --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset p0 --engine byte-bag \
+  --clauses 210 --vote-threshold 50 --states 130 \
+  --specificity 3.5 --vocab-size 8000 --ngram-len 5 \
+  --max-scan 4096 --epochs 6 --seed 42 --workers auto \
+  --train-percent 80 \
+    --max-scan 3072 \
+  --model-out /home/oops/models/imdb_p0_scan4k.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_scan4k.txt
+
+
+
+$ cargo run --release -- --mode train \
+  --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset p0 --engine byte-bag \
+  --clauses 210 --vote-threshold 50 --states 130 \
+  --specificity 3.5 --vocab-size 8000 --ngram-len 5 \
+  --max-scan 4096 --epochs 6 --seed 42 --workers auto \
+  --train-percent 80 \
+    --max-scan 3072 \
+  --model-out /home/oops/models/imdb_p0_scan4k.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_scan4k.txt
+    Finished `release` profile [optimized] target(s) in 0.00s
+     Running `target/release/para_byte_granmo --mode train --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl --preset p0 --engine byte-bag --clauses 210 --vote-threshold 50 --states 130 --specificity 3.5 --vocab-size 8000 --ngram-len 5 --max-scan 4096 --epochs 6 --seed 42 --workers auto --train-percent 80 --max-scan 3072 --model-out /home/oops/models/imdb_p0_scan4k.gmb --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_scan4k.txt`
+loaded 49570 labeled documents
+resolved config: HarnessRunConfig { profile: PreprocessProfile { stage_bits: 15 }, engine_selection: ByteBag, patch_size: 5, stride: 2, bag_ngram_len: 5, bag_vocab_size: 8000, n_clauses: 210, vote_threshold: 50, states_per_action: 130, specificity: 3.5, max_scan_bytes: 3072, guarded_include: false, fire_guard_streak_limit: 0, epochs: 6, seed: 42, worker_count: 16 }
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Run Preset:        p0           (Engine: byte-bag)
+  Train/Test Split:  39656/9914 samples
+Training Time Duration (h:m:s): 02:45:14
+------------------------------------------------------------
+  Accuracy (@ V > 0): 80.91%
+  Best-F1 Threshold:  V > -6
+  Precision:          0.7897
+  Recall:             0.8504
+  F1-Score:           0.8189
+------------------------------------------------------------
+Confusion Matrix (at optimal threshold):
+                  Pred Neg (0)Pred Pos (1)
+Actual Neg (0)    3832        1123        
+Actual Pos (1)    742         4217        
+------------------------------------------------------------
+Clause Dynamics:
+  fire-rate over 9914 test docs: never 0/210  always 19/210 (19 vacuous, 0 specialized)  p25 8.2%  median 17.4%  p75 22.7%
+  includes/clause: min 0  p25 1  median 1  p75 41  max 64  (19 clauses vacuous)
+  vacuous vote offset: +3  (11 positive-polarity, 8 negative-polarity vacuous)
+============================================================
+
+misprediction log: appended 1893 records to /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_scan4k.txt
+saved model artifact to /home/oops/models/imdb_p0_scan4k.gmb
+
+...
+
+
+cargo run --release -- --mode train \
+  --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset p0 --engine byte-bag \
+  --clauses 200 --vote-threshold 50 --states 100 \
+  --specificity 4.0 --vocab-size 8000 --ngram-len 5 \
+  --max-scan 4096 --epochs 11 --seed 42 --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/imdb_p0_tuned.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_tuned.txt
+
+
+
+  cargo run --release -- --mode train \
+    --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+    --preset p0 --engine byte-bag \
+    --clauses 200 --vote-threshold 50 --states 120 \
+    --specificity 4.0 --vocab-size 8000 --ngram-len 4 \
+    --max-scan 4096 --epochs 10 --seed 42 --workers auto \
+    --train-percent 80 \
+    --model-out /home/oops/models/imdb_p0_ngram4.gmb \
+    --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_ngram4.txt
+
+
+
+cargo run --release -- --mode train \
+  --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset p0 --engine byte-bag \
+  --clauses 200 --vote-threshold 50 --states 100 \
+  --specificity 3.6 --vocab-size 9000 --ngram-len 6 \
+  --max-scan 4096 --epochs 7 --seed 42 --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/imdb_p0_scan4k.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_scan4k.txt

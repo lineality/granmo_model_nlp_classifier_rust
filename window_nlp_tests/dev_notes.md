@@ -1149,3 +1149,140 @@ Confusion Matrix (Rows: Actual, Columns: Predicted):
 0              816           9208          
 ============================================================
 
+
+
+...
+
+
+cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --text-col text \
+  --label-col label \
+  --jsonl \
+  --model-type flat \
+  --model-path /home/oops/models/imdb-tfidf-model_1.json \
+  --epochs 8 \
+  --clauses 200 \
+  --threshold 90 \
+  --specificity 5 \
+  --max-features 4000
+
+
+....
+$ cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --text-col text \
+  --label-col label \
+  --jsonl \
+  --model-type flat \
+  --model-path /home/oops/models/imdb-tfidf-model_1.json \
+  --epochs 8 \
+  --clauses 200 \
+  --threshold 90 \
+  --specificity 5 \
+  --max-features 4000
+    Finished `release` profile [optimized] target(s) in 0.01s
+     Running `target/release/granmo_windowed_nlp --mode train --train /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl --text-col text --label-col label --jsonl --model-type flat --model-path /home/oops/models/imdb-tfidf-model_1.json --epochs 8 --clauses 200 --threshold 90 --specificity 5 --max-features 4000`
+Loading training dataset from: /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl
+  Total records loaded: 49570
+Splitting dataset (49570 total rows) into 80% train / 20% test...
+  Split: 39656 train rows, 9914 test rows
+[1/3] Building vocabulary across 39656 documents...
+  Active vocabulary features: 4000
+[2/3] Pre-computing flat BOW vectors (baseline path)...
+[3/3] Training flat VanillaTM (8 epochs, 2 classes)...
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Evaluated Samples: 9914
+  Training Time:     1290.32s
+  Accuracy:        74.53%
+  Macro Precision: 0.7852
+  Macro Recall:    0.7449
+  Macro F1-Score:  0.7358
+------------------------------------------------------------
+Confusion Matrix (Rows: Actual, Columns: Predicted):
+               0             1             
+0              2756          2189          
+1              336           4633          
+============================================================
+
+Successfully saved trained model artifact to: /home/oops/models/imdb-tfidf-model_1.json
+oops@fedora:~/code/granmo_model_nlp_classifier_rust/window_nlp_tests$ 
+
+...
+```bash
+cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --text-col text \
+  --label-col label \
+  --jsonl \
+  --model-type flat \
+  --model-path /home/oops/models/imdb-tfidf-model_1.json \
+  --epochs 16 \
+  --clauses 220 \
+  --threshold 90 \
+  --specificity 5 \
+  --max-features 4000
+  ```
+  $ cargo run --release -- \
+    --mode train \
+    --train /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+    --text-col text \
+    --label-col label \
+    --jsonl \
+    --model-type flat \
+    --model-path /home/oops/models/imdb-tfidf-model_1.json \
+    --epochs 16 \
+    --clauses 220 \
+    --threshold 90 \
+    --specificity 5 \
+    --max-features 4000
+      Finished `release` profile [optimized] target(s) in 0.04s
+       Running `target/release/granmo_windowed_nlp --mode train --train /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl --text-col text --label-col label --jsonl --model-type flat --model-path /home/oops/models/imdb-tfidf-model_1.json --epochs 16 --clauses 220 --threshold 90 --specificity 5 --max-features 4000`
+  Loading training dataset from: /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl
+    Total records loaded: 49570
+  Splitting dataset (49570 total rows) into 80% train / 20% test...
+    Split: 39656 train rows, 9914 test rows
+  [1/3] Building vocabulary across 39656 documents...
+    Active vocabulary features: 4000
+  [2/3] Pre-computing flat BOW vectors (baseline path)...
+  [3/3] Training flat VanillaTM (16 epochs, 2 classes)...
+  
+  ============================================================
+                 Classification Evaluation Report             
+  ============================================================
+    Evaluated Samples: 9914
+    Training Time:     2720.44s
+    Accuracy:        79.83%
+    Macro Precision: 0.7984
+    Macro Recall:    0.7983
+    Macro F1-Score:  0.7983
+  ------------------------------------------------------------
+  Confusion Matrix (Rows: Actual, Columns: Predicted):
+                 0             1             
+  0              3995          950           
+  1              1050          3919          
+  ============================================================
+
+
+
+```bash
+cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --text-col text \
+  --label-col label \
+  --jsonl \
+  --model-type flat \
+  --model-path /home/oops/models/imdb-tfidf-model_1.json \
+  --epochs 50 \
+  --clauses 150 \
+  --threshold 90 \
+  --specificity 5 \
+  --max-features 4000
+  ```
