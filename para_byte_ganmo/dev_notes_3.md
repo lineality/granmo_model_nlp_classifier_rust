@@ -1024,7 +1024,15 @@ cargo run --release -- --mode train \
     --model-out /home/oops/models/imdb_p0_ngram4.gmb \
     --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_ngram4.txt
 
-
+cargo run --release -- --mode train \
+  --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset p0 --engine byte-bag \
+  --clauses 150 --vote-threshold 50 --states 90 \
+  --specificity 3.6 --vocab-size 9000 --ngram-len 6 \
+  --max-scan 4096 --epochs 7 --seed 42 --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/imdb_p0_scan4k.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_scan4k.txt
 
 cargo run --release -- --mode train \
   --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
@@ -1035,3 +1043,29 @@ cargo run --release -- --mode train \
   --train-percent 80 \
   --model-out /home/oops/models/imdb_p0_scan4k.gmb \
   --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_scan4k.txt
+
+
+...
+
+cargo run --release -- --mode train \
+  --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset p0 --engine byte-bag \
+  --clauses 200 --vote-threshold 50 --states 100 \
+  --specificity 4.0 --vocab-size 8000 --ngram-len 5 \
+  --max-scan 4096 --epochs 11 --seed 42 --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/imdb_p0_c200_e11.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_c200_e11.txt
+
+
+  ..
+  cargo run --release -- --mode train \
+    --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+    --preset p0 --engine byte-bag \
+    --clauses 200 --vote-threshold 50 --states 100 \
+    --specificity 4.0 --vocab-size 8000 --ngram-len 4 \
+    --max-scan 4096 --epochs 10 --seed 42 --workers auto \
+    --train-percent 80 \
+    --model-out /home/oops/models/imdb_p0_ngram4_e10.gmb \
+    --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_ngram4_e10.txt
+    ```
