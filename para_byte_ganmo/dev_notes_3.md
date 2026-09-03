@@ -1069,3 +1069,193 @@ cargo run --release -- --mode train \
     --model-out /home/oops/models/imdb_p0_ngram4_e10.gmb \
     --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_ngram4_e10.txt
     ```
+
+...
+s$ cargo run --release -- \
+  --mode train \
+  --train /home/oops/Downloads/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --text-col text \
+  --label-col label \
+  --jsonl \
+  --model-type flat \
+  --model-path /home/oops/models/imdb-tfidf-model_1.json \
+  --epochs 28 \
+  --clauses 200 \
+  --threshold 90 \
+  --specificity 5 \
+  --max-features 4000
+error: could not find `Cargo.toml` in `/home/oops/code/granmo_model_nlp_classifier_rust/cluster_nlp_tests` or any parent directory
+oops@fedora:~/code/granmo_model_nlp_classifier_rust/cluster_nlp_tests$ cargo test
+error: could not find `Cargo.toml` in `/home/oops/code/granmo_model_nlp_classifier_rust/cluster_nlp_tests` or any parent directory
+oops@fedora:~/code/granmo_model_nlp_classifier_rust/cluster_nlp_tests$ cd ..
+oops@fedora:~/code/granmo_model_nlp_classifier_rust$ cd window_nlp_tests/
+oops@fedora:~/code/granmo_model_nlp_classifier_rust/window_nlp_tests$ cargo test
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running unittests src/main.rs (target/debug/deps/granmo_windowed_nlp-579e18fb1f25cb78)
+
+running 11 tests
+test tests::test_dataset_jsonl_parsing ... ok
+test tests::test_pooling_countfire_cap_and_anyfire ... ok
+test tests::test_pad_satisfies_negated_and_fails_positive ... ok
+test tests::test_short_document_padding_semantics ... ok
+test tests::test_windowed_order_sensitivity ... ok
+test tests::test_token_sequence_oov_preserves_positions ... ok
+test tests::test_windowed_tm_configuration_validation ... ok
+test tests::test_counter_consistency_after_training ... ok
+test tests::test_flat_baseline_pipeline_save_load ... ok
+test tests::test_windowed_tm_learns_negation ... ok
+test tests::test_windowed_pipeline_save_load_consistency ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+oops@fedora:~/code/granmo_model_nlp_classifier_rust/window_nlp_tests$ cargo run --release --   --mode train   --train /home/oops/Downloads/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl   --text-col text   --label-col label   --jsonl   --model-type flat   --model-path /home/oops/models/imdb-tfidf-model_1.json   --epochs 28   --clauses 200   --threshold 90   --specificity 5   --max-features 4000
+    Finished `release` profile [optimized] target(s) in 0.02s
+     Running `target/release/granmo_windowed_nlp --mode train --train /home/oops/Downloads/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl --text-col text --label-col label --jsonl --model-type flat --model-path /home/oops/models/imdb-tfidf-model_1.json --epochs 28 --clauses 200 --threshold 90 --specificity 5 --max-features 4000`
+Error: IoError { path: "/home/oops/Downloads/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl", source: Os { code: 2, kind: NotFound, message: "No such file or directory" } }
+oops@fedora:~/code/granmo_model_nlp_classifier_rust/window_nlp_tests$ cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --text-col text \
+  --label-col label \
+  --jsonl \
+  --model-type flat \
+  --model-path /home/oops/models/imdb-tfidf-model_1.json \
+  --epochs 28 \
+  --clauses 200 \
+  --threshold 90 \
+  --specificity 5 \
+  --max-features 4000
+    Finished `release` profile [optimized] target(s) in 0.01s
+     Running `target/release/granmo_windowed_nlp --mode train --train /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl --text-col text --label-col label --jsonl --model-type flat --model-path /home/oops/models/imdb-tfidf-model_1.json --epochs 28 --clauses 200 --threshold 90 --specificity 5 --max-features 4000`
+Loading training dataset from: /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl
+  Total records loaded: 49570
+Splitting dataset (49570 total rows) into 80% train / 20% test...
+  Split: 39656 train rows, 9914 test rows
+[1/3] Building vocabulary across 39656 documents...
+  Active vocabulary features: 4000
+[2/3] Pre-computing flat BOW vectors (baseline path)...
+[3/3] Training flat VanillaTM (28 epochs, 2 classes)...
+^X^C
+oops@fedora:~/code/granmo_model_nlp_classifier_rust/window_nlp_tests$ cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --text-col text \
+  --label-col label \
+  --jsonl \
+  --model-type flat \
+  --model-path /home/oops/models/imdb-tfidf-model_1.json \
+  --epochs 8 \
+  --clauses 200 \
+  --threshold 90 \
+  --specificity 5 \
+  --max-features 4000
+    Finished `release` profile [optimized] target(s) in 0.01s
+     Running `target/release/granmo_windowed_nlp --mode train --train /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl --text-col text --label-col label --jsonl --model-type flat --model-path /home/oops/models/imdb-tfidf-model_1.json --epochs 8 --clauses 200 --threshold 90 --specificity 5 --max-features 4000`
+Loading training dataset from: /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl
+  Total records loaded: 49570
+Splitting dataset (49570 total rows) into 80% train / 20% test...
+  Split: 39656 train rows, 9914 test rows
+[1/3] Building vocabulary across 39656 documents...
+  Active vocabulary features: 4000
+[2/3] Pre-computing flat BOW vectors (baseline path)...
+[3/3] Training flat VanillaTM (8 epochs, 2 classes)...
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Evaluated Samples: 9914
+  Training Time:     1290.32s
+  Accuracy:        74.53%
+  Macro Precision: 0.7852
+  Macro Recall:    0.7449
+  Macro F1-Score:  0.7358
+------------------------------------------------------------
+Confusion Matrix (Rows: Actual, Columns: Predicted):
+               0             1             
+0              2756          2189          
+1              336           4633          
+============================================================
+
+Successfully saved trained model artifact to: /home/oops/models/imdb-tfidf-model_1.json
+oops@fedora:~/code/granmo_model_nlp_classifier_rust/window_nlp_tests$ cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --text-col text \
+  --label-col label \
+  --jsonl \
+  --model-type flat \
+  --model-path /home/oops/models/imdb-tfidf-model_1.json \
+  --epochs 16 \
+  --clauses 220 \
+  --threshold 90 \
+  --specificity 5 \
+  --max-features 4000
+    Finished `release` profile [optimized] target(s) in 0.04s
+     Running `target/release/granmo_windowed_nlp --mode train --train /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl --text-col text --label-col label --jsonl --model-type flat --model-path /home/oops/models/imdb-tfidf-model_1.json --epochs 16 --clauses 220 --threshold 90 --specificity 5 --max-features 4000`
+Loading training dataset from: /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl
+  Total records loaded: 49570
+Splitting dataset (49570 total rows) into 80% train / 20% test...
+  Split: 39656 train rows, 9914 test rows
+[1/3] Building vocabulary across 39656 documents...
+  Active vocabulary features: 4000
+[2/3] Pre-computing flat BOW vectors (baseline path)...
+[3/3] Training flat VanillaTM (16 epochs, 2 classes)...
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Evaluated Samples: 9914
+  Training Time:     2720.44s
+  Accuracy:        79.83%
+  Macro Precision: 0.7984
+  Macro Recall:    0.7983
+  Macro F1-Score:  0.7983
+------------------------------------------------------------
+Confusion Matrix (Rows: Actual, Columns: Predicted):
+               0             1             
+0              3995          950           
+1              1050          3919          
+============================================================
+
+Successfully saved trained model artifact to: /home/oops/models/imdb-tfidf-model_1.json
+oops@fedora:~/code/granmo_model_nlp_classifier_rust/window_nlp_tests$ cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --text-col text \
+  --label-col label \
+  --jsonl \
+  --model-type flat \
+  --model-path /home/oops/models/imdb-tfidf-model_1.json \
+  --epochs 50 \
+  --clauses 150 \
+  --threshold 90 \
+  --specificity 5 \
+  --max-features 4000
+    Finished `release` profile [optimized] target(s) in 0.03s
+     Running `target/release/granmo_windowed_nlp --mode train --train /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl --text-col text --label-col label --jsonl --model-type flat --model-path /home/oops/models/imdb-tfidf-model_1.json --epochs 50 --clauses 150 --threshold 90 --specificity 5 --max-features 4000`
+Loading training dataset from: /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl
+  Total records loaded: 49570
+Splitting dataset (49570 total rows) into 80% train / 20% test...
+  Split: 39656 train rows, 9914 test rows
+[1/3] Building vocabulary across 39656 documents...
+  Active vocabulary features: 4000
+[2/3] Pre-computing flat BOW vectors (baseline path)...
+[3/3] Training flat VanillaTM (50 epochs, 2 classes)...
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Evaluated Samples: 9914
+  Training Time:     6992.93s
+  Accuracy:        81.68%
+  Macro Precision: 0.8180
+  Macro Recall:    0.8169
+  Macro F1-Score:  0.8167
+------------------------------------------------------------
+Confusion Matrix (Rows: Actual, Columns: Predicted):
+               0             1             
+0              4190          755           
+1              1061          3908          
+============================================================
+
+Successfully saved trained model artifact to: /home/oops/models/imdb-tfidf-model_1.json

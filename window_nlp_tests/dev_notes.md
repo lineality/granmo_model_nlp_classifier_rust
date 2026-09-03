@@ -1286,3 +1286,21 @@ cargo run --release -- \
   --specificity 5 \
   --max-features 4000
   ```
+
+
+
+```bash
+cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --text-col text \
+  --label-col label \
+  --jsonl \
+  --model-type flat \
+  --model-path /home/oops/models/imdb-tfidf-model_1.json \
+  --epochs 5 \
+  --clauses 150 \
+  --threshold 90 \
+  --specificity 5 \
+  --max-features 4000
+  ```

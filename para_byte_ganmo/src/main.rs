@@ -5515,7 +5515,9 @@ fn summarize_vacuous_vote_offset(clause_include_totals: &[u32]) -> String {
 /// a 2x2 confusion matrix grid, and clause fire-rate diagnostics.
 fn print_experiment_report(run_label: &str, report: &ExperimentReport) {
     let best = &report.best_f1_row;
-    let total_secs = report.test_count;
+    // Training wall-clock as h:m:s. `as u64` on a finite non-negative f64
+    // saturates and cannot panic.
+    let total_secs = report.train_seconds as u64;
 
     println!("\n============================================================");
     println!("               Classification Evaluation Report             ");
