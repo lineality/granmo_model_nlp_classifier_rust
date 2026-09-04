@@ -2290,3 +2290,23 @@ cargo run --release -- --mode train \
   --train-percent 80 \
   --model-out /home/oops/models/imdb_p0_c300_e12.gmb \
   --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_c300_e12.txt
+
+
+
+e.g.
+(C=400, T=100, M=10k, s=4.2)
+
+--clauses 400) — "C" Clause Bank Capacity
+--vote-threshold 100) — "T" The Margin / Confidence Ceiling
+--vocab-size 10000) — "M" Feature Space / Vocabulary Size
+--specificity 4.2) — "s" The Pattern Strictness Knob
+
+cargo run --release -- --mode train \
+  --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset p0 --engine byte-bag \
+  --clauses 300 --vote-threshold 75 --states 85 \
+  --specificity 3.7 --vocab-size 8000 --ngram-len 5 \
+  --max-scan 4096 --epochs 12 --seed 128 --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/imdb_p0_c300_e12.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/models/imdb_p0_ngrm5_c300_T75_M8k_s3_7.gmb

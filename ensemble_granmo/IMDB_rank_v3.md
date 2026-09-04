@@ -1,4 +1,14 @@
 Best scores for: (note seed)
+
+e.g.
+(C=400, T=100, M=10k, s=4.2)
+
+--clauses 400) — "C" Clause Bank Capacity
+--vote-threshold 100) — "T" The Margin / Confidence Ceiling
+--vocab-size 10000) — "M" Feature Space / Vocabulary Size
+--specificity 4.2) — "s" The Pattern Strictness Knob
+
+
 # Accuracy: 85.49%
 cargo run --release -- --mode train \
   --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
