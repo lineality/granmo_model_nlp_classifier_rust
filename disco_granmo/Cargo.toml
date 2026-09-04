@@ -1,0 +1,23 @@
+[package]
+name = "disco_granmo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+# build with -> cargo build --release
+[profile.release]
+# Maximum Link Time Optimization for best performance
+lto = "fat"
+# Single codegen unit maximizes optimization opportunities
+codegen-units = 1
+# Disable debug symbols to reduce binary size (use `debug = 1` if you need profiling)
+strip = "symbols"
+# Use unwinding for better error handling without sacrificing much performance
+panic = "unwind"
+# Disable incremental compilation for maximum optimization
+incremental = false
+# Maximum optimization for speed
+opt-level = 3
+# Enable more aggressive optimizations
+overflow-checks = false
