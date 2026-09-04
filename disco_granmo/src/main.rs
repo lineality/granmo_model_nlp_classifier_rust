@@ -1,4 +1,6 @@
-//! # Byte Granmo Model w/ Parallal Train/Predict Threading — Phase 2 Crate
+//! # Disco-Granmo: Discontinuous Pattern Ensemble Granmo Modeling
+//! Using Byte Granmo Model w/ Parallal Train/Predict Threading
+//! — Phase 4 Crate
 //! NLP text classification oriented, for binary (2-class) models only
 //!
 //! Observing: https://github.com/lineality/rust_lang_rules
@@ -7798,6 +7800,7 @@ fn handle_row_audit(args: &CliArgs) -> Result<(), GranmoModelError> {
     println!("\n============================================================");
     println!("                      Row Audit Report                      ");
     println!("============================================================");
+    println!("`line_index` = 1-based line number in source JSONL file (not 0-based)");
     println!(
         "records {}  rows tested {}  never-correct {}  wrong-even-in-train {}",
         record_total,

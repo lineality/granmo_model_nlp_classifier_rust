@@ -6,6 +6,28 @@
 --specificity 4.2) — "s" The Pattern Strictness Knob
 
 
+/////
+new disco-mode crate
+### Usage
+
+```bash
+# 5-fold, records for both sides, shallow settings
+cargo run --release -- --mode train --engine byte-bag --preset p0 \
+  --data /abs/data.jsonl --folds 5 --seed 42 --split-seed 7 \
+  --score-train-side --records-out /abs/out/predictions.tsv \
+  --clauses 200 --states 50 --epochs 4 --workers auto
+
+# repeat with other --split-seed values to accumulate; then
+cargo run --release -- --mode row-audit \
+  --records-in /abs/out/predictions.tsv --audit-top 100
+```
+
+--preset p0 \
+--folds 5 \
+--split-seed 7 \
+--score-train-side \
+--records-out /abs/out/predictions.tsv \
+--clauses ...
 
 
   //////////////////
@@ -2310,3 +2332,70 @@ cargo run --release -- --mode train \
   --train-percent 80 \
   --model-out /home/oops/models/imdb_p0_c300_e12.gmb \
   --log-out /home/oops/code/granmo_model_nlp_classifier_rust/models/imdb_p0_ngrm5_c300_T75_M8k_s3_7.gmb
+
+
+
+
+
+old
+```bash
+cargo run --release -- --mode train \
+  --data /home/oops/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset p0 --engine byte-bag \
+  --clauses 300 --vote-threshold 75 --states 85 \
+  --specificity 3.7 --vocab-size 8000 --ngram-len 5 \
+  --max-scan 4096 --epochs 12 --seed 128 --workers auto \
+  --train-percent 80 \
+  --model-out /home/oops/models/imdb_p0_c300_e12.gmb \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_c300_e12.txt
+```
+
+
+
+new
+
+## Two Step Process to Analyze Rows
+
+There is a chicken & egg puzzle to making a model to test data, where you need the data to be clean for the model to be good and you need the test to be accurate to make sure the data are good, so a first phase before trying to fit the model to the data is analyzing the data.
+
+
+
+#### Step 1 Run Row-Audit Report
+```bash
+cargo run --release -- --mode train \
+  --data /home/ABC/datasets/NLP/language_hygeine_datasets/binary_class_sets/lakshmi25npathi-imdb-dataset-of-50k-movie-reviews-archive/IMDBDataset_dedupe_detect_negative.jsonl \
+  --preset p0 --engine byte-bag \
+  --folds 5 --split-seed 7 --score-train-side \
+  --records-out /home/oops/code/granmo_model_nlp_classifier_rust/eval_data/out/predictions_1.tsv \
+  --clauses 300 --vote-threshold 75 --states 85 \
+  --specificity 3.7 --vocab-size 8000 --ngram-len 5 \
+  --max-scan 4096 --epochs 12 --seed 128 --workers auto \
+  --train-percent 80 \
+  --log-out /home/oops/code/granmo_model_nlp_classifier_rust/para_byte_ganmo/logs/imdb_p0_c300_e12.txt
+```
+#### Step 2 Run Row-Audit Report
+```bash
+# repeat with other --split-seed values to accumulate; then
+cargo run --release -- --mode row-audit \
+  --records-in /home/oops/code/granmo_model_nlp_classifier_rust/eval_data/out/predictions_1.tsv --audit-top 100
+```
+
+
+```bash
+# 5-fold, records for both sides, shallow settings
+cargo run --release -- --mode train --engine byte-bag --preset p0 \
+  --data /abs/data.jsonl --folds 5 --seed 42 --split-seed 7 \
+  --score-train-side --records-out /abs/out/predictions.tsv \
+  --clauses 200 --states 50 --epochs 4 --workers auto
+
+# repeat with other --split-seed values to accumulate; then
+cargo run --release -- --mode row-audit \
+  --records-in /home/oops/code/granmo_model_nlp_classifier_rust/eval_data/out/predictions_1.tsv --audit-top 100
+```
+
+--preset p0 \
+--folds 5 \
+--split-seed 7 \
+--score-train-side \
+--records-out /abs/out/predictions.tsv \
+--clauses ...
