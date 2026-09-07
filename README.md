@@ -9,7 +9,7 @@
 2. Window Experiments
 3. Flat-BOW-TFIDF Experiments
 4. Convolution-Model Experiments
-5. Multi-Class classification (e.g. language-detection (English, vs. French, vs. Dutch)
+5. Multi-Class classification (e.g. language-detection (English, vs. French, vs. Dutch))
 6. Byte-Bag Experiments
 7. Ensemble-Model Experiments
 8. Text-preprocessing comparision & Reporting
