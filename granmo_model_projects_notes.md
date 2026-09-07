@@ -933,7 +933,7 @@ D. Not all N-grams: This is something that maybe-could-be checked empirically: y
 
 Note: It could be (very speculative) a feature that could (in some cases) (potentially) boost extra-small models with deliberately small lexicons: E.g. N-gram size 2*4 is a lot smaller than N-grams sized 8. 
 
-Maybe if the model is size-limited (embedded device, etc.) and N-gram-len=2 + positions is a compromise within the size constraints compared with Ngram-len=3 or 4.
+Maybe if the model is size-limited (embedded device, etc.) and N-gram-len=2 + positions is a compromise within the size constraints compared with Ngram-len=3 or 4+. If useless features and clauses can be pruned, then even though it will take longer to find GA regex that help a small model, once they are found it might help to keep the lexicon and model small. (e.g. squeezing as much as you can out of n-gram-len=2 (or 1!).
 
 Or in some cases maybe time or size isn't an issue and the only thing that matters is performance + Granmo-explainability... using a rack of Nvidia H100s will probably make most of the bloat less of an issue compared with a quadrillion parameter foundation model.
 
@@ -1055,7 +1055,33 @@ Part 2. (MPV-1) Run Granmo-TM on the boolean features the same way that it would
 
 (Note: a genetic-algorithm farm for regex-queries require some kind of grammar generation framework 
 - AST grammar framework for generation?
-- 
+
+
+Provisional map of what is or is not in vanilla GM-TM:
+
+Is Included:
+1. A: boolean presence "literal"
+2. Not A: boolean absence
+3. ?A: exclusion of presence "literal"
+4. A|B: quasi-OR (voted sum)
+5. Groups (non-capturing) (clause is a group)
+6. + (≥1) (same as 1, presence?)
+
+quasi included:
+1. A ∧ B : Lookarounds
+
+Not Included:
+1. (A|B) ∧ C: OR — within a clause/conjunction 
+2. AB: Concatenation / adjacency (edge case: might be effectively inside an n-gram, but not for two n-grams A, B)
+3. {n,m}: bounded repetition of a chunk
+4. ^ $: Anchors
+5. \d \w [a-z]: Character classes (shape/class n-grams (e.g. Aa9, \d{4}))
+
+
+Excluded in this scope:
+- *: unbounded
+- Capture groups (?)
+- Backreferences
 
 
 37. Larger Structured-Extraction Process
