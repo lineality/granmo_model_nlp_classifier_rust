@@ -1304,3 +1304,244 @@ cargo run --release -- \
   --specificity 5 \
   --max-features 4000
   ```
+
+
+```bash
+cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/NLP/basilb2s-language-detection-archive/basilb2s-language-detection-deduped.jsonl \
+  --text-col text \
+  --label-col label \
+  --jsonl \
+  --model-type flat \
+  --model-path /home/oops/models/basilb2s-language-model_1.json \
+  --epochs 4 \
+  --clauses 120 \
+  --threshold 80 \
+  --specificity 4 \
+  --max-features 4000
+  ```
+
+cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/NLP/basilb2s-language-detection-archive/basilb2s-language-detection-deduped.jsonl \
+  --text-col text \
+  --label-col label \
+  --jsonl \
+  --model-type flat \
+  --model-path /home/oops/models/basilb2s-language-model_1.json \
+  --epochs 4 \
+  --clauses 120 \
+  --threshold 80 \
+  --specificity 4 \
+  --max-features 4000
+    Finished `release` profile [optimized] target(s) in 0.06s
+     Running `target/release/granmo_windowed_nlp --mode train --train /home/oops/datasets/NLP/basilb2s-language-detection-archive/basilb2s-language-detection-deduped.jsonl --text-col text --label-col label --jsonl --model-type flat --model-path /home/oops/models/basilb2s-language-model_1.json --epochs 4 --clauses 120 --threshold 80 --specificity 4 --max-features 4000`
+Loading training dataset from: /home/oops/datasets/NLP/basilb2s-language-detection-archive/basilb2s-language-detection-deduped.jsonl
+  Total records loaded: 10271
+Splitting dataset (10271 total rows) into 80% train / 20% test...
+  Split: 8217 train rows, 2054 test rows
+[1/3] Building vocabulary across 8217 documents...
+  Active vocabulary features: 4000
+[2/3] Pre-computing flat BOW vectors (baseline path)...
+[3/3] Training flat VanillaTM (4 epochs, 17 classes)...
+
+============================================================
+               Classification Evaluation Report             
+============================================================
+  Evaluated Samples: 2054
+  Training Time:     751.49s
+  Accuracy:        53.55%
+  Macro Precision: 0.8108
+  Macro Recall:    0.4977
+  Macro F1-Score:  0.5711
+------------------------------------------------------------
+Confusion Matrix (Rows: Actual, Columns: Predicted):
+               English       Malayalam     Hindi         Tamil         Portugeese    French        Dutch         Spanish       Greek         Russian       Danish        Italian       Turkish       Sweedish      Arabic        German        Kannada       
+English        199           0             0             0             0             0             0             1             0             1             0             1             81            0             0             0             0             
+Malayalam      1             76            0             0             0             0             0             0             1             0             0             0             32            0             0             0             0             
+Hindi          0             0             0             0             0             0             0             0             0             0             0             0             15            0             0             0             0             
+Tamil          0             1             1             21            0             0             0             0             1             0             0             1             70            0             0             0             0             
+Portugeese     0             0             1             0             52            0             0             7             0             0             0             1             72            0             0             0             0             
+French         1             1             1             2             1             98            1             1             0             0             0             2             90            1             0             0             0             
+Dutch          2             0             0             0             0             0             61            1             1             0             1             1             41            0             0             1             0             
+Spanish        1             2             0             0             1             1             0             67            0             2             0             1             80            1             0             1             0             
+Greek          3             0             0             0             0             0             0             0             34            0             1             0             48            0             0             0             0             
+Russian        0             2             0             1             0             0             0             0             3             97            0             2             41            0             0             0             0             
+Danish         0             0             0             0             1             0             1             0             0             0             40            0             36            4             0             1             0             
+Italian        1             1             0             0             1             1             0             3             0             0             0             45            76            2             0             0             0             
+Turkish        1             0             0             0             0             0             0             0             0             0             0             0             88            0             0             0             0             
+Sweedish       0             0             0             0             0             1             0             0             0             0             2             0             56            76            0             0             0             
+Arabic         0             1             2             0             2             0             0             0             1             0             0             0             44            0             54            1             0             
+German         0             0             1             0             1             1             0             1             0             0             0             0             34            0             0             55            0             
+Kannada        1             0             0             0             0             0             0             0             1             0             0             1             45            0             1             0             37            
+============================================================
+
+
+
+
+```bash
+cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/NLP/basilb2s-language-detection-archive/basilb2s-language-detection-deduped.jsonl \
+  --text-col text \
+  --label-col label \
+  --jsonl \
+  --model-type flat \
+  --model-path /home/oops/models/basilb2s-language-model_1.json \
+  --epochs 8 \
+  --clauses 150 \
+  --threshold 90 \
+  --specificity 5 \
+  --max-features 5000
+  ```
+
+  $ cargo run --release -- \
+    --mode train \
+    --train /home/oops/datasets/NLP/basilb2s-language-detection-archive/basilb2s-language-detection-deduped.jsonl \
+    --text-col text \
+    --label-col label \
+    --jsonl \
+    --model-type flat \
+    --model-path /home/oops/models/basilb2s-language-model_1.json \
+    --epochs 8 \
+    --clauses 150 \
+    --threshold 90 \
+    --specificity 5 \
+    --max-features 5000
+      Finished `release` profile [optimized] target(s) in 0.07s
+       Running `target/release/granmo_windowed_nlp --mode train --train /home/oops/datasets/NLP/basilb2s-language-detection-archive/basilb2s-language-detection-deduped.jsonl --text-col text --label-col label --jsonl --model-type flat --model-path /home/oops/models/basilb2s-language-model_1.json --epochs 8 --clauses 150 --threshold 90 --specificity 5 --max-features 5000`
+  Loading training dataset from: /home/oops/datasets/NLP/basilb2s-language-detection-archive/basilb2s-language-detection-deduped.jsonl
+    Total records loaded: 10271
+  Splitting dataset (10271 total rows) into 80% train / 20% test...
+    Split: 8217 train rows, 2054 test rows
+  [1/3] Building vocabulary across 8217 documents...
+    Active vocabulary features: 5000
+  [2/3] Pre-computing flat BOW vectors (baseline path)...
+  [3/3] Training flat VanillaTM (8 epochs, 17 classes)...
+  
+  ============================================================
+                 Classification Evaluation Report             
+  ============================================================
+    Evaluated Samples: 2054
+    Training Time:     2234.32s
+    Accuracy:        86.08%
+    Macro Precision: 0.8564
+    Macro Recall:    0.8328
+    Macro F1-Score:  0.8379
+  ------------------------------------------------------------
+  Confusion Matrix (Rows: Actual, Columns: Predicted):
+                 English       Malayalam     Hindi         Tamil         Portugeese    French        Dutch         Spanish       Greek         Russian       Danish        Italian       Turkish       Sweedish      Arabic        German        Kannada       
+  English        270           2             0             1             0             2             1             2             0             0             3             1             1             0             0             0             0             
+  Malayalam      1             103           0             1             0             2             0             0             0             2             1             0             0             0             0             0             0             
+  Hindi          1             3             9             1             0             0             1             0             0             0             0             0             0             0             0             0             0             
+  Tamil          1             0             0             87            0             2             0             0             0             1             2             1             0             1             0             0             0             
+  Portugeese     3             2             1             2             111           2             2             5             0             0             1             0             0             1             1             2             0             
+  French         1             0             1             0             1             190           1             0             1             0             1             1             0             0             2             0             0             
+  Dutch          5             1             0             0             3             0             93            1             0             0             3             1             0             2             0             0             0             
+  Spanish        1             2             2             2             8             6             2             130           0             0             2             0             0             0             2             0             0             
+  Greek          2             2             0             2             2             1             0             2             62            1             4             2             1             1             2             1             1             
+  Russian        1             2             0             2             0             1             0             0             0             134           5             0             0             0             1             0             0             
+  Danish         7             1             0             0             1             0             0             0             0             0             70            0             0             4             0             0             0             
+  Italian        3             2             0             3             1             9             0             8             0             1             4             97            1             1             0             0             0             
+  Turkish        2             0             1             1             2             4             0             2             1             0             15            0             59            1             1             0             0             
+  Sweedish       1             2             0             0             0             1             2             3             0             1             15            2             0             108           0             0             0             
+  Arabic         1             0             1             1             0             2             0             2             0             1             6             0             0             0             90            0             1             
+  German         0             1             0             1             2             2             0             1             1             0             5             0             0             0             0             79            1             
+  Kannada        2             0             1             1             0             0             0             0             0             0             4             0             1             1             0             0             76            
+  ============================================================
+  
+  Successfully saved trained model artifact to: /home/oops/models/basilb2s-language-model_1.json
+
+
+
+
+```bash
+cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/NLP/basilb2s-language-detection-archive/basilb2s-language-detection-deduped.jsonl \
+  --text-col text \
+  --label-col label \
+  --jsonl \
+  --model-type flat \
+  --model-path /home/oops/models/basilb2s-language-model_1.json \
+  --epochs 10 \
+  --clauses 180 \
+  --threshold 100 \
+  --specificity 4 \
+  --max-features 6000
+  ```
+  oops@fedora:~/code/granmo_model_nlp_classifier_rust/window_nlp_tests$ cargo run --release -- \
+    --mode train \
+    --train /home/oops/datasets/NLP/basilb2s-language-detection-archive/basilb2s-language-detection-deduped.jsonl \
+    --text-col text \
+    --label-col label \
+    --jsonl \
+    --model-type flat \
+    --model-path /home/oops/models/basilb2s-language-model_1.json \
+    --epochs 10 \
+    --clauses 180 \
+    --threshold 100 \
+    --specificity 4 \
+    --max-features 6000
+      Finished `release` profile [optimized] target(s) in 0.03s
+       Running `target/release/granmo_windowed_nlp --mode train --train /home/oops/datasets/NLP/basilb2s-language-detection-archive/basilb2s-language-detection-deduped.jsonl --text-col text --label-col label --jsonl --model-type flat --model-path /home/oops/models/basilb2s-language-model_1.json --epochs 10 --clauses 180 --threshold 100 --specificity 4 --max-features 6000`
+  Loading training dataset from: /home/oops/datasets/NLP/basilb2s-language-detection-archive/basilb2s-language-detection-deduped.jsonl
+    Total records loaded: 10271
+  Splitting dataset (10271 total rows) into 80% train / 20% test...
+    Split: 8217 train rows, 2054 test rows
+  [1/3] Building vocabulary across 8217 documents...
+    Active vocabulary features: 6000
+  [2/3] Pre-computing flat BOW vectors (baseline path)...
+  [3/3] Training flat VanillaTM (10 epochs, 17 classes)...
+  
+  ============================================================
+                 Classification Evaluation Report             
+  ============================================================
+    Evaluated Samples: 2054
+    Training Time:     4139.07s
+    Accuracy:        90.75%
+    Macro Precision: 0.9261
+    Macro Recall:    0.8896
+    Macro F1-Score:  0.9054
+  ------------------------------------------------------------
+  Confusion Matrix (Rows: Actual, Columns: Predicted):
+                 English       Malayalam     Hindi         Tamil         Portugeese    French        Dutch         Spanish       Greek         Russian       Danish        Italian       Turkish       Sweedish      Arabic        German        Kannada       
+  English        279           1             0             0             1             0             0             1             0             0             0             0             0             0             0             1             0             
+  Malayalam      5             103           0             1             0             0             0             0             0             0             0             0             0             0             0             0             1             
+  Hindi          1             0             12            0             0             0             0             1             1             0             0             0             0             0             0             0             0             
+  Tamil          3             0             0             84            0             1             1             1             1             1             0             0             1             0             1             0             1             
+  Portugeese     2             3             0             0             120           0             0             7             0             0             0             0             0             0             1             0             0             
+  French         3             1             0             0             1             188           0             1             1             1             0             2             0             0             1             0             0             
+  Dutch          8             0             0             0             0             0             98            1             0             0             0             0             0             2             0             0             0             
+  Spanish        1             0             1             2             1             3             0             137           3             0             0             1             1             2             1             3             1             
+  Greek          5             0             0             0             0             2             0             1             77            0             1             0             0             0             0             0             0             
+  Russian        3             1             0             0             0             1             1             0             0             140           0             0             0             0             0             0             0             
+  Danish         8             0             0             1             0             0             0             0             0             0             68            0             0             6             0             0             0             
+  Italian        6             0             0             0             2             4             0             4             1             0             0             112           1             0             0             0             0             
+  Turkish        18            0             0             0             0             1             0             0             2             0             1             0             66            1             0             0             0             
+  Sweedish       2             0             0             0             0             0             1             1             1             0             4             0             0             126           0             0             0             
+  Arabic         8             0             0             2             1             0             0             0             0             0             0             1             0             2             91            0             0             
+  German         3             1             0             0             1             0             1             0             1             1             0             0             0             0             1             84            0             
+  Kannada        4             1             0             0             0             0             0             1             1             0             0             0             0             0             0             0             79            
+  ============================================================
+  
+  Successfully saved trained model artifact to: /home/oops/models/basilb2s-language-model_1.json
+
+
+
+```bash
+cargo run --release -- \
+  --mode train \
+  --train /home/oops/datasets/NLP/basilb2s-language-detection-archive/basilb2s-language-detection-deduped.jsonl \
+  --text-col text \
+  --label-col label \
+  --jsonl \
+  --model-type flat \
+  --model-path /home/oops/models/basilb2s-language-model_1.json \
+  --epochs 12 \
+  --clauses 180 \
+  --threshold 100 \
+  --specificity 4 \
+  --max-features 7000
+  ```
