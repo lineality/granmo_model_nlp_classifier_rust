@@ -770,7 +770,7 @@ What we want is an unknown (and at times forever novel) 'inside', in a context w
 
 ## 'Outside' detection for "not the known outside" Binary-Classification:
 
-We can set up training data designed to create a dataset with 'Inside-or-Not" classification of each space (with space/tab/newline standardized to 'one space' in preprocessing) (plus a position or space at the start and end): where 'outside' is 'exclusive' of the spaces before and after the target.
+We can set up training data designed to create a dataset with 'Inside-or-Not" classification of each space (with space/tab/newline standardized to 'one space' in preprocessing) (plus a position or space at the start and end): where 'outside' is 'exclusive' of the spaces before and after the target. (e.g. the goal is to identify a window slice that is divided at the target-space as a boundary, as a divided spaces, as a not-outside space. To do this the boundary spaces themselves are defined as 'inside'. e.g. It will happen often that one single word is either the inside or outside portion, so the requirement cannot be to find an boundary space inside and inside that has no spaces -- even if that were possible it would punt the task of identifying where the boundaries are (not where inside points are). The goal is to define boundaries using a 'not-outside' vs. 'is-outside' classification.).
 
 Running this model in one pass iteratively over the input sentence (once for each "space" (+ start + end)) may be the only definition we need to seek the start and end bytes around the 'inside.'
 
@@ -878,9 +878,85 @@ It may be case-by-case to up to results, but having a larger window might help w
 Using N pads (here N=2), the instead of the window being 2-tokens, it may become 2*N tokens. 
 Could we have a larger token window while still having the score/prediction/classification/decision be about the 'focus' token, which is the space that is potentially a boundary-space?
 
-36. Finite-State Granmo Machine Stacks/Layers
+36. Boolean-RegeX-Feature Granmo Machine Stacks/Layers: Boolean RegeX-FSM Layer 
 (highly speculative)
+Gramno-TM as Boolean Regular-Language State Machine:
+Computable Granmo-TM space as Semi-Bounded Regular language?:
+
 Genetic Algorithms & Decentralized Voting: Finite-State Machines + Granmo Machines (normally "TM"s)
+
+Given that the ~results of regex operations can be (eventually) boolean values: 
+
+If existing and well-demonstrated Granmo models are (Disjunctive Normal Form (DNF)) FST Boolean-feature learners that use boolean metadata about n-grams (the boolean match for an N-gram), such that Bag-of-Ngrams Gramno TM classifications models could be said to already be a minimal form of boolean-Regex derived metadata feature learning model: What other boolean regex-derived corpus/document metadata features could be seamlessly added to expand the reach of the boolean-metadata feature set? (see 'Standard N-Gram Positional Boolean Metadata' below.) What also simple/minimal features are low-hanging fruit, and what more derived but equivalent-type features could be tested?
+
+Can we define the subset of regex in which TM-models normally live? e.g. 
+- linear-time matching (as in Big-O accounting),
+- decidable equivalence (decidability/definability is of value (including for audit/verification/testing/reproducibility), 
+- minimal-DFA canonical hashing (hash verifiable same lexicon), 
+- structural dead-clause detection (requiring that clauses can be satisfied in principle)
+
+No:
+- no ReDoS (guarded by AST source of potential new variants/mutations)
+- no backreferences (e.g. to make character pattern repetition regular)
+- no unbounded counters (no unbounded repetition of multi-char chunk; no unbounded int result;)
+
+
+if 
+clause = an intersection of regular languages, 
+negated literals = complement, 
+class vote threshold = accept-set over the product automaton 
+is the learned model then a regular language?
+
+Can adding regex to BOW/BONgrams TM classification a less extremely minimal version of the same traditional model, rather than adding anything 'new' to the architecture? 
+
+
+Note:
+Perhaps case by case, as this may be used for highly varied real life cases:
+1. genomics
+2. ascii NLP
+3. unicode multi-language NLP
+4. small doc
+5. large doc
+6. IoT data analysis
+7. symbol is signal NLP
+8. symbol is noise NLP
+etc.
+
+It is likely infeasible to prescribe a set of boundaries that are practical for all use-cases, but with human-language-NLP, probably various 'possible but expensive' operations will not end up being useful most of the time. It is also possible that none of this will be useful any of the time! But there may be something worth trying.
+
+E.g. All-Positional pairs are quadratic, but 'All' might not be needed:
+A. They might not be needed at all
+B. Not all positions needed: It could be that one or some of the four end up be much more common (so the others are less important to check).
+C. Any might be an indicator that others are or are not useful, such that you can prob-check quickly with one. (Or something similar in scenario where you are running multiple tests anyway, perhaps check one positional feature at a time (and none of them). 
+D. Not all N-grams: This is something that maybe-could-be checked empirically: you might not need to do positional-feature checking on the entire lexicon (most of the time). E.g. In a normal distribution of n-gram frequencies if 1.5IRQ (or just simpler 1IQR) is fast and effective ~most of the time, that might cut down on the cost. (or, conversely, maybe the tails end up being more important, so just check those, etc.) (or, maybe high and low frequency are better to pair (vs. high and high or low and low))
+
+
+Note: It could be (very speculative) a feature that could (in some cases) (potentially) boost extra-small models with deliberately small lexicons: E.g. N-gram size 2*4 is a lot smaller than N-grams sized 8. 
+
+Maybe if the model is size-limited (embedded device, etc.) and N-gram-len=2 + positions is a compromise within the size constraints compared with Ngram-len=3 or 4.
+
+Or in some cases maybe time or size isn't an issue and the only thing that matters is performance + Granmo-explainability... using a rack of Nvidia H100s will probably make most of the bloat less of an issue compared with a quadrillion parameter foundation model.
+
+
+In terms of problem-space, I am not entirely sure that the scope management of these Part-1 (fixed standard regular language extensions) or part-2 (GA (AST genetic algo)) is definitionally different compared with the parameters of a normal GM-TM: If the parameters are too loose the result is big and slow. Come to think of it, that's what Prof. Skip Ellis tried to teach us about all computer science problem spaces; theoretical solutions and viable solutions are not identical: finding viable solutions is not trivial.
+
+That said: THere should be general rules of thumb, guard rails, and tricks that will work. (again... assuming any of this has any value, which is a stretch).
+
+Note:
+for practicality it might useful to ~define
+A. in theory a GM-TM is a regular language in terms of ability
+B. in practicality a subset of regular language can be optimal
+This might be why a safe starting point is the most minimal boolean-count-metadata (BOW-TM) (perhaps like the safe starting most minimal TM automata), 
+A. most minimal is a (beautiful) kludge, not a definition of the problem/engine space
+B. other features are both within the space and practical
+C. more clearly defining the space will help to define the range of practical options
+
+
+Idea: Defining a Semi-bounded Regular Language? 
+(related to scope-scale and big-o(& NP-completeness...Turing Oracles?))
+
+
+
 
 Is there a way for Granmo model clauses to be associated with regex components/elements?
 
@@ -919,9 +995,67 @@ Metadata Features:
 Given a proverbial (or literal) table of meta-data X fields for each class, the Granmo-model system may be able to vote on class-identification relevance in a similar way to how BOW/TFIDF 'features' are voted on.
 
 
+A. N-gram vs. Other
+In a sense the RegeX idea here is a diversification of an existing singular mode: Gramno-TM is already good at using frequency based boolean metadata about n-grams. We can ask at least expansion questions:
+1. Can we use other simple standard boolean metadata about the document?
+2. Can we derive other boolean meta-data using N-grams (e.g. by making regex queries using those N-grams)?
+E.g. if a regex pattern returns either something or nothing, that is already boolean. If the regex query returns a list, then that list containing more that Threshold T can be the binary filter, e.g. More than 0, or more than N (where various values of N can be tested for usefulness in comparing classes).
+
+
+Standard N-Gram Positional Boolean Metadata:
+For each pair of n-grams (A & B), there are two positional-metadata boolean values: (Any A found before Any B) and (Any B found before Any A)
+
+- N-gram positional metadata: Does one n-gram occur before another? (boolean)
+
+
+
+# 'standard metadata' items
+( brainstorming notes )
+- vowel patterns
+- consonant patterns
+- symbol patterns (could be a simple as a class with vs. without)
+- capitalization patterns
+- punctuation patterns
+- text length patterns
+- repeated character patterns (e.g. repeated symbols in hate-speech)
+
+vs.
+# making new regex based on n-gram table:
+- Frequency may be the most useful meta-data signal about an n-gram
+
+- n-gram 1 | n-gram N
+- 
+
+
 Architecture/Integration:
 Could it work to have another layer where on top of detecting a given byte/token clause, randomly tried regex operations are tried regarding (and maybe other known clauses), and those regex-operations are voted on as well?
 
+
+Sample Walkthrough 1:
+With or without other types of features (e.g. Bag or N-gram frequencies)
+
+#### Part 1: Feature Engineering
+1.1 (MVP-1) Produce a table of boolean-results for a standard set of regex ~queries
+
+Part 2. (MPV-1) Run Granmo-TM on the boolean features the same way that it would work for Bag-of-N-grams boolean features.
+
+
+#### Sample Walkthrough 2:
+With or without other types of features (e.g. Bag or N-gram frequencies)
+
+Part 1: Feature Engineering
+1.1 (MVP-1) Produce a table of boolean-results for a standard set of regex ~queries
+1.2 (optional) Randomly generate other regex boolean features
+option A. a one time process (there would be many useless clauses at the start)
+option B. looped process to find the most useful queries while using a manageable set of clauses at a time.
+1.3 Log useful queries found, to maybe add to the standard set to always try
+
+Part 2. (MPV-1) Run Granmo-TM on the boolean features the same way that it would work for Bag-of-N-grams boolean features.
+
+
+(Note: a genetic-algorithm farm for regex-queries require some kind of grammar generation framework 
+- AST grammar framework for generation?
+- 
 
 
 37. Larger Structured-Extraction Process
@@ -953,6 +1087,11 @@ month
 month-day
 
 
+38. Implicit vs. Explicit Ensemble
+What kinds of features can be used in the same 'model' in various ways?
+1. same flat pool of clauses and votes
+2. parallel models with modified false-positive
+3. other: stages?
 
 
 N. convolutional levenshtein functions?
