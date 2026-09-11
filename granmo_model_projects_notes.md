@@ -21,6 +21,8 @@ https://arxiv.org/abs/2309.04801
 TMComposites: Plug-and-Play Collaboration Between Specialized Tsetlin Machines
 Ole-Christoffer Granmo
 
+https://en.wikipedia.org/wiki/Finite-state_machine
+https://en.wikipedia.org/wiki/Deterministic_finite_automaton 
 
 https://arxiv.org/abs/2301.00709 
 "To produce such logical embeddings, we introduce a Tsetlin Machine-based autoencoder that learns logical clauses self-supervised."
@@ -46,10 +48,12 @@ https://aclanthology.org/2022.woah-1.12/
 https://aclanthology.org/2022.woah-1.12.pdf
 
 1. look at results of comparisons: 
+[note: these are no longer the current comparisons, but comparison is ever a goal]
+
 - This Module-4 (byte-bag vs. convolution)
 - older modules:
-- flat-bow-tfidf vs. windowed
-- cluster vs. flat
+- flat-bow- vs. windowed
+- cluster-tfidf vs. flat
 
 Overall clusters, windows, and convolution do not-as-well
 but I think convolution might have other non-NLP uses.
@@ -88,6 +92,10 @@ Partition the training dataset across N worker threads[2][3]. Each thread runs t
 Note: Look at the tsetlin_rs crate on crates.io, which achieves 25x–90x speedups using bitwise SIMD clause packing (u64 bitboards) and lock-free parallel training[2][3][4].
 
 note: rapid-demo-POC is usually not the same as production code. Unless there is a compelling reason, 3rd party crates should not be used.
+
+
+[Maybe a parallel-batch-prediction, maybe similar to normal test-mode (with output different)]
+
 
 
 3. Validation Gating:
@@ -154,6 +162,8 @@ vs
   --clauses 100 \
   --max-features 4000
 
+[Note: periodically look for new papers]
+
 
 12. data-set checker (maybe mostly done)
 dataset_filechecker
@@ -177,7 +187,29 @@ C.
 
 
 13.  Optimizations 2: Bitwise optimization for production model 'inference'
+- A. optimizing inference for speed
+- B. optimizing inference for memory/cpu resource small-ness (tiny device)
+- C. maybe optimizing storage-loading of model (may relate to inference-only-model)
+- D. Try to make a compile-in-model inference-only version.
+- E. Optimizations for specific type devices (if possible)
+- micro controllers/arduino
+- raspi
+- amd-x86-64
+- ARM
+- mac-silicon (gpu-mixed memory?)
+- single cpu
+- many cpu
+- small gpu
+- big gpu
 
+
+environment 'optimizations':
+- cloud containers
+- serverless endpoints (aws/other)
+- dedicated server (e.g. endpoint server for model)
+- microservice server
+- module for another rust-crate
+etc.
 
 14: Model ~pruning, cleaning out low-"weights"?
 
@@ -185,6 +217,18 @@ C.
 15. Continuous learning production system...
 - live-feedback learning?
 (not MPV)
+A. able to be manually re-trained and tested against old-golded-dataset (make sure new training does not degrade [guarded]model &(vs.) against new-golden-dataset (e.g. evolution in use-case) 
+B. an automated trusted-user life-retraining system (semi-auto to full-auto)
+- system contains training set
+- bug-ticket items are added to data-set
+- periodic auto-retrain of model based on updated dataset
+C. Decentralized swarm of devices that act as perhaps a single layer Granmo-TM model
+(e.g. small devices scattered around biology field research site (maybe LORA-network)
+- collect data
+- test model with data
+- run model on data
+etc.
+
 
 16. operate on bytes... maybe convolutional? (not BOW/tfidf)
 - https://github.com/RAprogramm/tsetlin-rs/blob/main/src/convolutional.rs 
@@ -222,9 +266,11 @@ the main 'edge' case might be if a half-word somehow creates a false-positive...
 Reinforcement Learning with Granmo Automata Game based Models/Architectures:
 With a target being a social-story puzzle ( see https://github.com/stemnetbenchmarks/social_story_and_cookbook_puzzles  ), while it may be a 'difficult' task for an automata that cannot coordinate with another automata using a meaningful signal (so perhaps some pre-existing function-calls might be needed) given enough empirical learned-from experience, could Granmo Automata Game based Models/Architectures learn how to solve individual or classes of social story puzzles, puzzles that require sharing of puzzle state between participants, and ~coordination of actions to solve the puzzle?
 
+maybe-related to data-collection self-learning system 1) single 2) swarm
+
 
 21.
-reporting on an examining what cases fail test: 
+reporting on an examination of what cases failed test: 
 - in some cases more training variation needed
 - in some cases they are invalid tests - bad data
 
@@ -240,7 +286,13 @@ Properties of and variation in properties of automata:
 - raw byte (no preprocessing)
 - ascii lower
 - N spaces, tabs, newlines -> one space
-- 
+- porter stemmer
+- lematizer
+- off-the-shelf-tokenizer (yuck)
+- remove symbols
+- check for numbers in words
+- remove numbers
+
 Note: comparing on various texts and languages, not all languages are ascii oriented.
 
 24. better explanation and understanding of different approaches/mechanisms:
@@ -262,6 +314,7 @@ C. For continual streams
 2. Text Extraction (maybe model pairs), item start-stop position in text for NER-type extraction, e.g. first-name, last-name, address-items, phone number, email address, age, etc. (e.g. 1. start position, 2. end position, 3. extract (maybe two models and one raw-code)
 
 3. Various models for use in Modular-Eliza type models/architectures, e.g. a schedule question bot, do-one-thing-well focus, that translates unstructured incoming schedule questions into specific queries for a structured schedule database (mostly variations on: what is at time-T? What time is event-E?) Much of this can be entirely deterministic, but having resource-thrifty, explainable, Granmo-Models for various tricky-cases would be a boon. Possibly: language detection, past-future tense detection, requesting help detection, etc.
+NER-BIO-Extraction type extraction
 
 4. No-GPS location/direction updating: turn related, speed/velocity/distance related. Very resource and energy thrift for drone/automata
 
@@ -273,6 +326,15 @@ C. For continual streams
 6. streaming audio signal compression (like vocoder)
 
 7. video stream compression (single attribute detection for extremely minimal representation)
+
+8. language detection
+
+9. toxic/hate/bully/bad detection
+
+10. sentiment analysis?
+- multi-language sentiment analysis?
+Q: Hybrid VADER+Granmo type system?
+
 
 
 26. Misprediction Inspection:
@@ -309,6 +371,11 @@ note: test train split being random, maybe requires seed?
 
 
 28. Explainability Framework
+- model is the map, since json human readable?
+- any other...properties to be mapped... e.g. main 'weights/clauses'?
+- fire-guard test is probably important... (e.g. which clauses are always/never fire)
+- odd/even yes/no vote clauses... those patterns might matter (or if that ratio is modified etc)
+
 
 29. Ongoing Performance Benchmarking Framework
 A. Static Golden Set
@@ -319,9 +386,18 @@ D. Recent-Data Benchmark (Recent-cases (not in past test/training sets))
 
 30. MER integration
 - SchedulELIZA
+- 1. language detection model
+- 2. question-type detection model
+- 3. event-name extraction model
+A. fixed model
+B. update/retrain
+C. auto/on-fly/train
+
 
 31. Uma Integration
 - A. Language Hygiene
+- Possible specific problem identification models (schedule data, 
+- 
 
 
 32. Use-Cases and Datasets
@@ -457,8 +533,9 @@ Ahmed K. Kadhim, Lei Jiao, Rishad Shafik, Ole-Christoffer Granmo, Bimal Bhattara
 
 
 
-26. Tradeoff Separation: No One Pattern (Geometry) is All Patterns, So Separate the needed Patterns.
+NN. Tradeoff Separation: No One Pattern (Geometry) is All Patterns, So Separate the needed Patterns.
 
+26. Simple Ensemble Type 1: No One Pattern (Geometry) is All Patterns, So Separate the needed Patterns
 E.g. Parallel Features
 
 Step 1. Try a variety of different feature approaches.
@@ -580,6 +657,7 @@ Can we identify re-find-able properties that tend to be found in one class rathe
 Can it be detected when a model is being pulled N directions:
 1. If so, instead of 1-compromise model, make N  specific models
 2. Try to arrange it so that false-positives are minimized, and any positive from the suite will count as positive.
+
 
 
 
@@ -878,16 +956,88 @@ It may be case-by-case to up to results, but having a larger window might help w
 Using N pads (here N=2), the instead of the window being 2-tokens, it may become 2*N tokens. 
 Could we have a larger token window while still having the score/prediction/classification/decision be about the 'focus' token, which is the space that is potentially a boundary-space?
 
-36. Boolean-RegeX-Feature Granmo Machine Stacks/Layers: Boolean RegeX-FSM Layer 
+
+36. Boolean-RegeX-Features in Granmo Models: Regular Language Definition, Finite State Machines (FSM), Disjunctive Normal Form (DNF), Abstract Syntax Trees, Feature Scope Reduction, & Genetics Algorithms (GA)
+
+TODO: Check these assumptions:
+1. RegeX engines are FMSs over input strings.
+2. Tsetlin Automata are FSMs over learning feedback.
+3. Granmo-Model learned classifier is a prepositional formula.
+4. Whole-Model can be described as a Regular Language.
+
+Steps:
+1. sharpening/pruning sections and scope
+2. first MVP steps (e.g. standard-pattern-set), perhaps oriented toward first tests to get data to orient
+3. Any tests that need to be run first?
+4. Specific known-clean and unambiguous datasets (maybe classic ones) to test this on to see if vanilla 2018 Granmo can be meaningfully expanded. (Not datasets like IMDB where erratic human input is randomly designated as Positive or Negative with no Neutral class, etc.
+
+
+(May harken back to project-node for feature-type, feature engineering, and feature discovery expansion (both for standard enlarged set and for Genetic-Algorith discovery process)
 (highly speculative)
 Gramno-TM as Boolean Regular-Language State Machine:
 Computable Granmo-TM space as Semi-Bounded Regular language?:
 
-Genetic Algorithms & Decentralized Voting: Finite-State Machines + Granmo Machines (normally "TM"s)
+Design Questions:
+1. Type: Can or will there be a 'conflict' between any of the new boolean features and the original set of Granmo model boolean features? If not, will the only factor be whether the new features are of any value for a given dataset? 
+2. Quantity: Would feature quantity itself interfere? Should there be a process of first doing a vanilla Granmo model and then adding additional features only if they are found to have predictive value? (e.g. Four possible groupings
+Set 1: Byte-Bag vanilla expressions
+Set 2: Byte-Bag standard extended expressions
+Set 3: specific character patterns
+Set 4: Byte-Bag GA farmed mutation extended expressions
+
+(speculative idea: if they are comparable in the end, could it work to train e.g. four separate models (each set separately), and prune those of dead-clauses, and then combine them (or retrain with all useful multi-set-features)
+step 1. train four separate one-set models
+step 2. prune dead features
+step 3. combine all useful features
+step 4. retrain using validated features (e.g. with parameters adjusted for that feature set)
+
+(alternatively... a discontinuous ensemble of step-1 could be tried...)
+
+Note: one matter of speculation/exploration here is how literally or figuratively 'GA/Genetic Algorithm' is meant. (This is a classic area of CS/DS/ML I have long hoped to revive, but it may be more illustrative here.)
+
+
+Another question may be how formally computability-scope management should be, or can be, defined. It would be interesting if there were formal and practical ways to define the language-space beyond: 'in the workshop you turn the dial until it stops working, then you dial back until it works again'
+E.g. with any 'set number of N-grams' system, I have never heard of a fixed upper bound or the lack of one being a reason not to use n-grams or an invalidation of n-gram descriptions.
+Or maybe the 'definition' would come in the direction of a process-grammar for both standard patterns and pattern-feature-discovery-engineering that would progressively self-maintain a manageable cohort of features (e.g. fixed-size sandbox tests and aggregations of finds...a definable aggregation process?)?. Another aspect of this is distributing (ideally both) the standard-pattern-set test-and-reduce process and the GA-discovery process across multiple 'workstations' (e.g. small (fixed or mobile) devices at a research site).
+
+
+
+## Level 2: Set 4: Byte-Bag GA farmed mutation extended expressions
+
+Genetic Algorithms & Decentralized Voting: Finite-State Machines + Granmo Models (normally "TM"s)
 
 Given that the ~results of regex operations can be (eventually) boolean values: 
 
-If existing and well-demonstrated Granmo models are (Disjunctive Normal Form (DNF)) FST Boolean-feature learners that use boolean metadata about n-grams (the boolean match for an N-gram), such that Bag-of-Ngrams Gramno TM classifications models could be said to already be a minimal form of boolean-Regex derived metadata feature learning model: What other boolean regex-derived corpus/document metadata features could be seamlessly added to expand the reach of the boolean-metadata feature set? (see 'Standard N-Gram Positional Boolean Metadata' below.) What also simple/minimal features are low-hanging fruit, and what more derived but equivalent-type features could be tested?
+If existing and well-demonstrated (2018) Granmo models are (Disjunctive Normal Form (DNF)) FST Boolean-feature learners that use boolean metadata about n-grams (the boolean match for an N-gram), such that Bag-of-Ngrams Gramno TM classifications models could be said to already be an extremely minimal form of boolean-Regex derived metadata feature learning model (with a regular-language?): What other boolean regex-derived corpus/document metadata features could be seamlessly added to expand the reach of the boolean-metadata feature set? (see 'Standard N-Gram Positional Boolean Metadata' below.) What also simple/minimal features are low-hanging fruit, and what more derived but equivalent-type features could be tested? Can we define both the Disjunctive Normal Form (DNF) and the Regular-Language (subset of Regular-expression language space) of Gramno models (Is there a convention way to describe the intersection between a DNF definition and a RL definition to describe a particular feature-space/problem-space?), such that boolean operations and data-byte-based features including AST-governed byte-set boolean-definable-attributes can be defined to better articulate the feature-space of Granmo classification.
+(Note: the primary application of this is NLP boolean classification, but the definition should be more Granmo-model general.)
+
+(UML state machine?)
+deterministic finite automaton (DFA)—also known as deterministic finite acceptor (DFA), deterministic finite-state machine (DFSM), or deterministic finite-state automaton (DFSA) (Warren McCulloch and Walter Pitts) - not trying to expand this slim system into a sub-symbolic NN (... a DFA-neural network?) but interesting history note.
+https://en.wikipedia.org/wiki/Deterministic_finite_automaton
+"DFAs have been generalized to nondeterministic finite automata (NFA) which may have several arrows of the same label starting from a state. Using the powerset construction method, every NFA can be translated to a DFA that recognizes the same language. DFAs, and NFAs as well, recognize exactly the set of regular languages.[Hopcroft, Motwani & Ullman 2006.]"
+
+(Are there features that are not within the regex-sub-space?)
+
+Maybe:
+Trying to define if this is an ensemble approach or a 'native redefinition' approach,
+- 2018 TM framed as DNF learner over booleans
+- clause may be defined as A. an intersection of regular languages
+B. Granmo regular language 
+- class vote defined as A. threshold over unions of compliments and intersections B. maybe unchanged if what expanded was a single language definition (something describing a more singular definition)
+
+
+Another aspect may be how similar or different the expanded standard pattern set is from the feature-derivation/~GA process, e.g. could a 2nd Granmo-TM (by the same rules) act to vote on the successful AST-based feature mutations?
+(If so, how is this self-reflexive language described? - seems sort of dynamic-ish by also still deterministic? (pseudo-dynamic?))
+
+From claude opus, needs examination:
+(```## 1. Theoretical anchor (drives every design constraint)
+
+Regular languages are closed under **union, intersection, and complement**. Therefore:
+
+> If every feature is a regular predicate over the input, then the *entire* learned model — features, clause conjunctions, negations, weighted vote, and threshold `T` — is itself a **single regular language**, computable by the product DFA whose accept set is `{states : Σ w_j·C_j ≥ 0}`.```)
+
+
+Note/Question: For quadratic Positional feature: how about this as a default setting: to Document Frequency DF of n-grams, take top 25%, use those for positional feature: then it is linear not quadradic, no?
 
 Can we define the subset of regex in which TM-models normally live? e.g. 
 - linear-time matching (as in Big-O accounting),
@@ -957,42 +1107,75 @@ Idea: Defining a Semi-bounded Regular Language?
 
 
 
+Whole-document metadata: (maybe or maybe not used/compatible)
+- length buckets
+- capitalization
+- punctuation
+- standard format detection: datetime, 24hour time
+- character repetition (e.g. repeated punctuation in toxic/radical text)
+- compression-ratio
+- line-count
+- Shannon Entropy (not MVP)
+- character/byte distribution and transition boolean metadata (very speculative)
+- per-line and line-comparison meta-data (e.g. for larger docs; apply all the above to lines of the doc (e.g. length of lines, capitalization of lines, etc.) (not MVP)
 
-Is there a way for Granmo model clauses to be associated with regex components/elements?
+
+
+(recap-question) Is there a way for Granmo model clauses to be associated with regex components/elements?
 
 - literals
 - metacharacters
 - character-classes
 - quantifiers
-- anchors
+- repetition as boolean (repeats/does not repeat; &/or repeats more then N times (e.g. hate speech repetition))
+- anchors (^, $, \b, \B to ask position question as boolean features (e.g. ^http, !$, ^\d{3}-\d{4}$, \b{n-gram}\b)
+(?) - saturating counters (>=k)
+(?) - bounded quantifiers
+(?) - bounded lookaround
 - groups and alternation: groups, capture groups, non-capture groups, alternation (logical OR matches A|B; Flag: this may be useful!)
 - alternation
 - escapes & predefined classes: Digit, word-char, whitespace, negated
 - Lookarounds (Zero-Width Assertions): positive/negative lookahead/lookbehind
+(- linear-time-matching rule)
+
 
 E.g. As a way to bridge part-analysis and analysis-parts with the effects on the entire document (which should include or be shaped by:
 1. interaction between parts of analysis
 2. properties of the whole document that are not found in isolated parts
 3. (stretch-goal scope) potentially the ability for a decentralized modeling process to happen in a more decentralized way (e.g. not just abstract automata all in the ram of one device, but N devices in a network (e.g. measurement devices spread out over a field-research site).
 
+TODO: elaborate on and define 'Anchors'
 
-Standardized Parts: State-Machine Meta-Data
-While n-grams are a time-tested useful set of patterns, what other problem-space-subspaces are there?
 
-1. Frequency: Bag/TFIDF (BOW, BO-Ngrams, Byte-Bag, etc.)
+Standardized Parts: State-Machine Boolean Meta-Data
+
+We are going to focus here on byte/token-n-gram boolean language type features (perhaps boolean described language meta-data), but at some point we should at least ask if there is a larger set of boolean-definable patterns that can be used. While n-grams are a time-tested useful set of patterns, what other problem-space-subspaces are there? (Starting with normal BOW)
+
+1. Presence: (frequency not zero) Bag (BOW, BO-Ngrams, Byte-Bag, etc.)
 2. Sequence & Convolution Patterns
-3. RegeX Meta-Data
+3. RegeX Meta-Data (can include boolean sequence)
+4. frequency (DF, TF, TF-IDF) e.g. Frequency above/below N: boolean
+
+Note: What may be part of the point of this larger question, in RegeX we can see features that do not belong here (helping us to define what is inside): 
+- start, unbounded definitions
+- backreference operations
+As a future-scope question, could we similarly define elements of convolution, and other types of patterns, that do and do not fit?
 
 (In theory, an ensemble model could use (for example non-false-positive) versions of all these types of patterns to try to better identify classes/class-labels?)
+
+
+Checking: Both Granmo Models and Regex are Finite state machines, yes?
 
 Modular RegeX (or Finite State Machine) Meta-Data:
 For example, let's say we have two NLP classes. 
 - A given regex search can return results that can be meta-data described either as binary 1/0 (something/nothing) or by int quantity, where a simple threshold may be drawn e.g. describing an intermediate between the median results of each class.
 
-Metadata Features:
+Metadata Features more generally:
+boolean BOW uses one type of boolean 'document/term metadata', what else (if anything else) might fit in this document-term metadata-feature regular language and Disjunctive Normal Form (DNF)?
 
-- A variety of perhaps 'standard metadata' items (such as phone number matches, email matches, date-format, html-tags, time in 24-hour format) can be checked along with genetic-algorithm style varied randomly tried binary or quantity regex queries (or perhaps the quantity based results could be automatically interpreted as binary given a threshold, so that all meta-data fields are binary.
-Given a proverbial (or literal) table of meta-data X fields for each class, the Granmo-model system may be able to vote on class-identification relevance in a similar way to how BOW/TFIDF 'features' are voted on.
+- Standard Patterns & Discovered Patterns
+A variety of perhaps 'standard metadata' items (such as standard regex-filters for phone number matches, email matches, date-format, html-tags, time in 24-hour format, positions, etc.) can be checked along with genetic-algorithm style varied randomly tried binary or quantity regex queries (or perhaps the quantity based results could be automatically interpreted as binary given a threshold, so that all meta-data fields are binary.
+Given a proverbial (or literal) table of meta-data X fields for each class, the Granmo-model system may be able to vote on class-identification relevance in a similar way to how BOW 'features' are voted on.
 
 
 A. N-gram vs. Other
@@ -1022,22 +1205,24 @@ For each pair of n-grams (A & B), there are two positional-metadata boolean valu
 vs.
 # making new regex based on n-gram table:
 - Frequency may be the most useful meta-data signal about an n-gram
-
 - n-gram 1 | n-gram N
-- 
+
 
 
 Architecture/Integration:
 Could it work to have another layer where on top of detecting a given byte/token clause, randomly tried regex operations are tried regarding (and maybe other known clauses), and those regex-operations are voted on as well?
 
+Q: negative-feature metadata? 
+e.g. not-A and not-B
+negative DNF-RegeX might not be practical for common Grep type uses of RegeX, but they may help mature the definition and feature space of Granmo-"language" for model uses beyond NLP.
 
 Sample Walkthrough 1:
 With or without other types of features (e.g. Bag or N-gram frequencies)
 
-#### Part 1: Feature Engineering
+#### Step 1: Feature Engineering
 1.1 (MVP-1) Produce a table of boolean-results for a standard set of regex ~queries
 
-Part 2. (MPV-1) Run Granmo-TM on the boolean features the same way that it would work for Bag-of-N-grams boolean features.
+#### Step 2. (MPV-1) Run Granmo-TM on the boolean features the same way that it would work for Bag-of-N-grams boolean features.
 
 
 #### Sample Walkthrough 2:
@@ -1045,7 +1230,7 @@ With or without other types of features (e.g. Bag or N-gram frequencies)
 
 Part 1: Feature Engineering
 1.1 (MVP-1) Produce a table of boolean-results for a standard set of regex ~queries
-1.2 (optional) Randomly generate other regex boolean features
+1.2 (optional) Randomly generate other regex boolean features from AST (abstract syntax tree of approved pre-structured options, see below)
 option A. a one time process (there would be many useless clauses at the start)
 option B. looped process to find the most useful queries while using a manageable set of clauses at a time.
 1.3 Log useful queries found, to maybe add to the standard set to always try
@@ -1055,6 +1240,18 @@ Part 2. (MPV-1) Run Granmo-TM on the boolean features the same way that it would
 
 (Note: a genetic-algorithm farm for regex-queries require some kind of grammar generation framework 
 - AST grammar framework for generation?
+
+
+### Attempting a Language-Type Definition for GM-TM classification model features, such that a 2018 Granmo-Model is a subset of a (possibly) well defined Granmo-Regular-Language, some of which (as is also the case for 2018 type) may under some configurations be larger than practical computation suites. 
+
+We will try to define a Granmo-Regular-Language as a subset of standard RegeX Regular language space. (I think.) Based on this, we can define an Abstract Syntax Tree (AST) with which feature-mutation/permutation within that defined regular language can be tested (and selected if testing positive). 
+
+The applied goal is to find a larger, native, practical set of features that Granmo models can use for enhanced effectiveness in classification models. 
+
+An abstract goal may be to more accurately map the feature-space, feature-engineering-space and problem space-space of a 2018 Granmo model in the context of language spaces. In theory this could help with other extensions as since 2018 people have been pushing for many other variants and applications of Granmo's Automata T-Machines (sometimes aimed at emulating features or use-cases of deep learning or other models). 
+
+
+
 
 
 Provisional map of what is or is not in vanilla GM-TM:
@@ -1083,6 +1280,32 @@ Excluded in this scope:
 - Capture groups (?)
 - Backreferences
 
+
+Idea:
+There are various batch-variation and outlier-row testing features, some of those may be useful for this exploration of what may or may not be useful or disruptive.
+
+Design question that might go back to feature-set size:
+since this is byte-bag not a word-bag model, can or should there be ways to 
+1. select raw-byte or space-delimited 'word' byte-sets, or both
+2. remove un-useful items from the feature-set so that it is not overly large
+3. possibly a DF(document frequency of token) type process not for getting word/byte-set probability data to model, but for selecting the most commonly shared set of byte-sets to start with, this could make the feature set arbitrarily small (Top-N DF: top 5, 10, 25 etc. not everything)
+
+Note: (Not MVP) if there could be a way to pre-screen or otherwise manage the feature-space, having N-Item Positional pairs (A before B & C) or (A before B before C) might be useful (boolean) features to have, if there is a way to narrow the feature-space (DF?)
+
+Note: There is some overlap here too with (somewhat) reinforcement learning / self-evaluation elements in various ways:
+1. iterative feature-quantity management
+2. GA-type feature discovery process (feature-learning, then learning with features)
+3. 
+4. distributed learning process: carried out (if once) by a swarm in a process on the fly
+5. ongoing re-training and performance maintenance
+
+Q: Question, the answer is probably 'no' but for the sake of thoroughness are there changes at the level of automata properties/variations that may be relevant to this scope?
+
+
+## Krummholz Decision Trees 
+(From biology, a Krumholz Tree is a tree structure that grows horizontally, as where above treeline conditions are too adverse to survive growing up.)
+
+A further question here is whether either level 1 or level 2 may represent a kind of 'flat-decision-tree' type model, where the feature space is in some ways a branching set of conditions, but restricted such that it is expressible in a linear bitwise DFSNMT?PDQBach flat feature set with better audit and explainability and understandability properties than a dense decision tree.
 
 37. Larger Structured-Extraction Process
 
