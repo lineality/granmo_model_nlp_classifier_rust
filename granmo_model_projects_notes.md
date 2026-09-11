@@ -1,8 +1,7 @@
-Granmo Models Notes - Slim Production NLP
+# Granmo Models Notes - Slim Production NLP
 
-
-https://arxiv.org/abs/1804.01508
-- original 2018 paper by Ole-Christoffer Granmo
+Original 2018 paper by Ole-Christoffer Granmo
+- https://arxiv.org/abs/1804.01508
 
 https://arxiv.org/abs/2507.14874
 - May 2026, Granmo et al
@@ -964,6 +963,7 @@ TODO: Check these assumptions:
 2. Tsetlin Automata are FSMs over learning feedback.
 3. Granmo-Model learned classifier is a prepositional formula.
 4. Whole-Model can be described as a Regular Language.
+5. That a Granmo Model may be a Regular Language subset of RegeX?
 
 Steps:
 1. sharpening/pruning sections and scope
