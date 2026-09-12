@@ -9,6 +9,7 @@ One of the underlying, or over-arching, themes in this set of experiments and ex
 Narrow:
 Starting from an NLP (natural language process) context, we will look at trying to make two additions, or two levels of additions to a 2018 'vanilla' Granmo Model (TM):
 
+
 ## Level 1: The Standard Library
 Can extend the standard default feature space used by 2018-Granmo Models? This question is largely empirical.
 
@@ -26,7 +27,7 @@ In level two we will take another step into the problem space of feature-discove
 
 The overall scheme, again from an NLP standpoint, is exploring an approved AST (abstract syntax tree) subset of RegeX type boolean-defined features. This may be where some of the 'language definition' steps connect the abstract with needed empirical test and design data.
 
-### GA:
+### GA Genetic Algorithm:
 One question here is whether the feature search can or should be formally or informally described as a Genetic Algorithm process, and or in terms of populations and mutations (if not other instrumentalist terms such as species and other feature equilibria).
 
 
@@ -127,4 +128,6 @@ Resource-constrained models/use-cases with smaller-models/fewer-clauses may be a
 
 # Datasets for testing:
 1. Language classification
+- spam detection
+(Maybe comments on IMDB dataset class definition issues.)
 2. Genomic Sequence Classification Tests
