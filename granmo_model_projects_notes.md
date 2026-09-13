@@ -1,1274 +1,1446 @@
-[Note: this is a semi-deprecated planning thread that started with very very preliminary convolution model testing and ended up focusing on A. byte-bag type modeling with B. more extensive testing, dataset, and model inspection features.]
+# Granmo Models Notes - Slim Production NLP
 
-Production Rust Coding, Production Data Science. You are professional, detailed (not terse), proactive and helpful; you are not casual, vague, dramatic, or recreationally social.
-Production Rust Project:
- (Hand off Docs for Session 5; see code-so-far and 4th hand-off doc below)
+Original 2018 paper by Ole-Christoffer Granmo
+- https://arxiv.org/abs/1804.01508
+
+https://arxiv.org/abs/2507.14874
+- May 2026, Granmo et al
+- "The Tsetlin Machine Goes Deep: Logical Learning and Reasoning With Graphs"
+
+https://chemrxiv.org/doi/full/10.26434/chemrxiv-2026-dsz7v/v3 
+Tsetlin Machine: A “Third Way” in QSAR Modelling, 30 April 2026 V3 Latest version
+The Tsetlin Machine: A “Third Way” in QSAR Modelling
+Authors: Mr. Paul Clarke  paulclarke61@gmail.com, Dr. Ivan Cmelo  , Dr. Runar Helin, Mr. Mayur Shende mayur.kishor.shende@uia.no, Prof. Ole-Christoffer Granmo, and Dr. Darren Fayn
+
+Nov 18, 2024 VSAONLINE Webinar Series. Ole-Christoffer Granmo and Vojtech Halenka
+https://www.youtube.com/watch?v=KngOz9e2saE 
+
+https://arxiv.org/abs/2309.04801 
+[Submitted on 9 Sep 2023 (v1), last revised 12 Sep 2023 (this version, v2)]
+TMComposites: Plug-and-Play Collaboration Between Specialized Tsetlin Machines
+Ole-Christoffer Granmo
+
+https://en.wikipedia.org/wiki/Finite-state_machine
+https://en.wikipedia.org/wiki/Deterministic_finite_automaton 
+
+https://arxiv.org/abs/2301.00709 
+"To produce such logical embeddings, we introduce a Tsetlin Machine-based autoencoder that learns logical clauses self-supervised."
+[Submitted on 2 Jan 2023]
+Tsetlin Machine Embedding: Representing Words Using Logical Expressions
+Bimal Bhattarai, Ole-Christoffer Granmo, Lei Jiao, Rohan Yadav, Jivitesh Sharma
+
+https://arxiv.org/abs/2501.19018 
+[Submitted on 31 Jan 2025 (v1), last revised 17 Oct 2025 (this version, v3)]
+Scalable Multi-phase Word Embedding Using Conjunctive Propositional Clauses
+Ahmed K. Kadhim, Lei Jiao, Rishad Shafik, Ole-Christoffer Granmo, Bimal Bhattarai
 
 
-Rust project: 
-- new test results to analyze: various batch runs... run.
-- new dataset cleaner used for latest tests (with best results too)
-- task: setting next steps: features & tests (batch v2)
-- what features to work on (team diversity)
-- what test to modify or add.
-- probably focusing on byte-bag for this type of NLP (but other projects might use convolution)
-- the preprocessing variation results are interesting
+1 https://github.com/cair/TsetlinMachine 
+2 https://docs.rs/tsetlin-rs/latest/tsetlin_rs/ 
+3 https://github.com/RAprogramm/tsetlin-rs
+4 https://github.com/topics/interpretable-ml?l=rust&o=desc 
+6 https://crates.io/crates/zinfer-tsetlin
 
-# Goals: Part R&D, Part Production Rust
-### R&D Goals
-1. Analyze Compute-Optimized Granmo Models for use in Rust Production Data Science including NLP, audio, image, etc.
-2. Examine the feature-derivation phase of modeling (e.g. not relying on human pre-made features)
+Resources for Multilingual Hate Speech Detection
+https://en.wikipedia.org/wiki/Association_for_Computational_Linguistics 
+https://aclanthology.org/2022.woah-1.12/
+https://aclanthology.org/2022.woah-1.12.pdf
+
+1. look at results of comparisons: 
+[note: these are no longer the current comparisons, but comparison is ever a goal]
+
+- This Module-4 (byte-bag vs. convolution)
+- older modules:
+- flat-bow- vs. windowed
+- cluster-tfidf vs. flat
+
+Overall clusters, windows, and convolution do not-as-well
+but I think convolution might have other non-NLP uses.
+
+
+"CTM" note: there is a convolutional-image machine in 
+"Convolutional — Convolutional
+2D patch extraction for image-like data." (https://github.com/RAprogramm/tsetlin-rs/tree/main)
+
+- https://github.com/RAprogramm/tsetlin-rs 
+- https://docs.rs/tsetlin-rs/latest/tsetlin_rs/ 
+https://github.com/RAprogramm/tsetlin-rs/blob/main/src/convolutional.rs 
+
+- clustering not helping? (e.g. old v1-v5)
+
+
+
+multi-class: while multi-class may be possible, single-class may be optimal for a single-model,
+e.g. try to engineer a large clean dataset with 'bad_hygiene' and 'good_hygiene' as the only two labels for prediction.
+
+do-one-thing-well modules:
+maybe spin off window modeling / byte-convolutionary modeling as a separate project,
+
+if 'flat' works best, simply and focus on flat for one module (not high prority now)
+
+
+
+
+2. Optimizations 1 parallel / concurrent
+(the training does not use available cpu)
+Strategies for Multi-Core TM Training:
+Class-Parallel Training (Immediate 2x–6x speedup):
+For multiclass TMs, clauses for Class A and Class B are completely independent during training. You can train classes in parallel using Rayon.
+Lock-Free Asynchronous Parallel Training (Hogwild / TMU style):
+Partition the training dataset across N worker threads[2][3]. Each thread runs train_step on shared or thread-local automaton states and synchronizes after every mini-epoch[2][3].
+Note: Look at the tsetlin_rs crate on crates.io, which achieves 25x–90x speedups using bitwise SIMD clause packing (u64 bitboards) and lock-free parallel training[2][3][4].
+
+note: rapid-demo-POC is usually not the same as production code. Unless there is a compelling reason, 3rd party crates should not be used.
+
+
+[Maybe a parallel-batch-prediction, maybe similar to normal test-mode (with output different)]
+
+
+
+3. Validation Gating:
+A. for 're-training' 'continued-training'
+B. as part of a training-workflow,
+maybe: (using 10-row-sets because single rows might not be able to detectably improve performance...unless one row can improve performance (e.g. confusion-matrix FP/FN or derived metrics.)
+1. train with a block of 10-rows at a time
+2. if after that block, the performance fell,
+systematically withhold 1/10 rows to see if 
+A. performance improves
+B. if performance falls less
+If falls less, drop that and repeat,
+loop,
+keep training from rows that improve performance.
+
+various goals;
+1. validation-gating for updated-deployed systems to pass old tests
+2. general training improvement to filter out counter-productive row-learning
 3. 
-4. Compare specific preprocessing and model-types e.g. using (existing) batch-comparison:
-- flat-BOW-TFIDF
-- Byte-Bag
-- Byte-Conv
-*
-- raw
-- p0-p5
-5. Try out and test new approaches such as:
-- feature derivation
-- Trade-off-separation (Ensemble?)
+
+standard in production ML and continuous learning systems (sometimes called Validation Gating, Regression Testing, or Checkpoint Rollback).
+Because Tsetlin Machine state transitions are deterministic under a given evaluation set, this is straightforward to implement...
+
+4 look at. other rust-crates for tsetlin machine models...
+- convolution
+- production-optimization
+- performance: parameter-balancing etc
+- thrifty bitwise operations
+
+5. being able to use a dataset where the test-set is a separate file (or where you want to test it on a similar other set)
+option for separate test-set file including
+- test-set-file-path
+- test-set-file-ylabel-col
+- test-set-file-xdata-col
+
+6. third mode:
+1. train
+2. predict
+3. test-a-file
+
+7. separate version: only predict-one binary, with a built-in model (for on-edge deployment, slim-end-points, devices, etc.), blazingly-slim pre-compiled model
+- example goal: make one or more social-media-hygiene classifier (clean or not) model trained on a big compound dataset and test-set
+
+8. separate version: only predict-one binary, with adjacent-file model
+
+9. python-'refactor' library 
+
+10. explainability reports
+1. print-explanation-for-model (how classify: is json the explanation?)
+2. print-explanation-for-input (why this one case classified? - features?)
 
 
-Plan: It is easier to pair-down than to re-write, so model-testing code should be future-proofed for production.
+11. explore thresholds: for models that score decently (above 90%?) see what 'parameters' are least-worst for that (e.g. 'maxy' is doubtless overkill)
+e.g. 
+english-toxic-language-dataset-for-nlp/toxic_comments_english.csv
 
-### Production Goals
-1. A slim language-detection model, e.g. 15-languages, whatever best-balances optimized prediction/inference, and accuracy. (maybe simple multi-class TF-IDF)
+93%
+ --epochs 15 \
+  --clauses 50 \
+  --max-features 2500
 
-1. Highly specialized Rust code only for prediction/inference for a do-one-thing-well built-in-weights binary. (E.g. NLP Sentiment or hate/bullying classification)
-2. Production code only for prediction/inference that loads an adjacent file
-3. Production Code with both inference and re-train/continuous-train features.
+vs
+ --epochs 50 \
+  --clauses 100 \
+  --max-features 4000
 
-
-
-Session 4 Alignment — Test Suite 1.0
-possible scope areas:
--  A. Reproducibility & Versioning
-Every run produces a run manifest (JSON or plain text, always appended to a log directory):
-
-B. Ablation Matrix Registry
-A human-readable json/toml file declaring the rows you will run and their success criteria:
-D. more extensive test-error logging (maybe gated learning issue-found logging)
-C. Cross-Dataset Agreement Table
-E. Fire-Rate & Clause-Role Report (per Session 2)
-
-need two more datasets to establish whether ByteBag is better overall
-
-overall compare approaches across several datasets:
-- Byte-Bag(Flat)
-- Convolution
-- Flat-BOW-TFIDF
-- Cluster+TFIDF
-- Windowed-BOW-TFIDF
-
-Performance 
-A. In this implementation
-B. On these data
-C. On this type of problem
-
-1. This implementation is likely not balanced or optimized (or properly implemented for experimental scope)
-2. These data (ascii-focus) may have non-general properties
-3. Language-Hygiene classification is one specific niche; other problem-geometries will be different; regression, probability, time series, embedding-vectors, (unsupervised clustering?), multi-class-classification, unbalanced datasets, FP .vs FN, etc.
-
-That said: Byte-Bag-Flat scores
-
-# Note: parallelization was added.
+[Note: periodically look for new papers]
 
 
-Byte-Convolution Any-Series Team-Granmo-Automata-Games:
-- NLP
-- this is for a production-code project
-- this particular use case (for this MVP) is bad-language (hate, bullying, etc.) in social-media text.
-- this first-MVP is a training-module (focused on establishing feasibility of convolutional Granmo model for NLP), but assuming the models are useful, production-prediction versions (for inference, not training) should be easily adapted from this code. Other implied future scope includes: 
-1. a single-prediction feature
-2. a training-coach program that tests and compares parameters for best results 
-3. gated-learning that checks against benchmarks before retaining learning
-4. a continual-learning application that can be updated with new training sets (also gated-learning): this would combine production-prediction with learning (like this application) 
-5. a continual-stream inspection application
+12. data-set checker (maybe mostly done)
+dataset_filechecker
+TODO: remove newlines from text cols (option)
+Probably a .py script using python-pandas (flexible csv reading etc)
+A.
+1. read in file
+2. report bad rows
+3. report .describe on columns, including mixes datatypes if found
+4. report hash-compare identical rows
+5. report very close rows (e.g. strip to alphanumeric, lower, levenshtein distance)
+6. Q&A to configure cleaned-safe new .json out 
+
+B.
+- where there are separate test-train files: run a check (no changes made to files)
+- check for row duplicates if not other tests
+
+C. 
+- takes in csv or json
+- converts to csv/json
+
+
+13.  Optimizations 2: Bitwise optimization for production model 'inference'
+- A. optimizing inference for speed
+- B. optimizing inference for memory/cpu resource small-ness (tiny device)
+- C. maybe optimizing storage-loading of model (may relate to inference-only-model)
+- D. Try to make a compile-in-model inference-only version.
+- E. Optimizations for specific type devices (if possible)
+- micro controllers/arduino
+- raspi
+- amd-x86-64
+- ARM
+- mac-silicon (gpu-mixed memory?)
+- single cpu
+- many cpu
+- small gpu
+- big gpu
+
+
+environment 'optimizations':
+- cloud containers
+- serverless endpoints (aws/other)
+- dedicated server (e.g. endpoint server for model)
+- microservice server
+- module for another rust-crate
 etc.
 
-- there is a more standard Granmo TM pipeline MVP that is effective, code is available. But that is very MVP and not production-design strict.
-- below are various notes including 'Rust Rule' and the Mode & Case-handling framework description, the past-hand-off and the current one. 
-- It is entirely possible, it is likely, that there are issues with the existing code, such as bloat or a design that is not future-proofed for where the project is intended to go. Refactoring the existing code should come before
-- There are still some recent design additions/corrections made, such as:
-22. Parameters: TeamCompositionPalette & Diversity
-- Question: Can, should, there be a new ~'model training parameter' (or more than one) for: board_species_team_diversity, to adjust how much variation there is properties of the agents in the game 
-(claud says) 
-```Should we plan a team-diversity parameter? Plan yes — but as a palette, not a scalar
-Your phrasing is clear, and the concept is sound (it is exactly the M-Hetero track: fast/slow "scout/anchor" composition, already validated as theoretically safe for P4-tier properties). Three design points:
-2a. It is a construction parameter, not a training parameter. Team composition is fixed at engine construction and must be persisted in the artifact (inference needs per-clause depth N to interpret states; validation needs it for the [1, 2N] band check). So it belongs with ClauseCount/StatesPerAction in the config surface, and heterogeneous artifacts require a format v2 or new kind — a later, clean bump.
-2b. Recommend an explicit palette over a scalar diversity knob. A single board_species_team_diversity scalar under-specifies two things: diversity of what (depth? specificity? guard?) and distributed how. Instead:
-- Engine-level representation: a TeamCompositionPalette — a small bounded list of species, each species = (clause fraction, StatesPerAction, SpecificityThresholds, guard flag). Homogeneous baseline = single-species palette (the degenerate case, so current behavior is preserved exactly). Deterministic assignment of clauses to species (e.g., contiguous rank blocks within each polarity), so the artifact is fully self-describing and every run reproducible from config alone.
-
-- The scalar you asked about lives one level up, in the future training-coach (future scope item 2): a coach-side palette generator that maps diversity ∈ [0, 1] + a base config + a seed to a concrete palette. That keeps the engine explicit and auditable while giving the coach a single sweepable axis. Best of both.
-This also pays off diagnostically: with explicit species, the fire-rate report (scheduled for 2.2c) can histogram per species, which is precisely the instrument for the recorded vote-imbalance risk (deep anchors fire reliably, shallow scouts fire noisily) that decides whether CoTM weights get pulled forward.
-2c. What to do now vs. later. Locked decision S2-9 stands: no heterogeneous runs before homogeneous baselines of both engines, or the ablation matrix is confounded. So:
-- Now (Drop 3.0): R2 accessors only. No palette type, no CLI flag, no artifact change.
-- At M-Hetero: add TeamCompositionPalette + artifact v2 + per-species fire-rate reporting. By then it is storage + accessor-body changes only.
-- Record now: the palette-not-scalar decision and the coach-side generator placement, so this doesn't get re-litigated.
+14: Model ~pruning, cleaning out low-"weights"?
 
 
-
-- Suggest a manageable set of code at a time, scope creep dilutes focus.
-- Planning first and agreeing on scope before coding.
-- 'Describing what a change is' is good, but do not mix that description with the overall instructions. spot-changes and individual line changes are fine. e.g. it is wasteful (and error prone) to regurgitate pub fn is_retryable (or enum GranmoModelError ) each time there is a spot-change. Be clear.
-
-- If you need more information about something, ask.
-
-
-
-see:
-- https://arxiv.org/abs/1804.01508 ,
- "T-Machine: A Game Theoretic Bandit Driven Approach to Optimal Pattern Recognition with Propositional Logic" 2018, by Ole-Christoffer Granmo
-
-
-- https://arxiv.org/html/2507.14874v2
-2025, Gramno et al: The Tsetlin Machine Goes Deep: Logical Learning and Reasoning With Graphs
-(There are, amazingly, some useful items from this paper for this scope, but mostly this is not in scope. See below for where this paper helped confirm design decisions.)
+15. Continuous learning production system...
+- live-feedback learning?
+(not MPV)
+A. able to be manually re-trained and tested against old-golded-dataset (make sure new training does not degrade [guarded]model &(vs.) against new-golden-dataset (e.g. evolution in use-case) 
+B. an automated trusted-user life-retraining system (semi-auto to full-auto)
+- system contains training set
+- bug-ticket items are added to data-set
+- periodic auto-retrain of model based on updated dataset
+C. Decentralized swarm of devices that act as perhaps a single layer Granmo-TM model
+(e.g. small devices scattered around biology field research site (maybe LORA-network)
+- collect data
+- test model with data
+- run model on data
+etc.
 
 
-- Existing convolution code:
-https://github.com/RAprogramm/tsetlin-rs/blob/main/src/convolutional.rs
-
-
- - Prior experiment code:
-https://github.com/lineality/granmo_model_nlp_classifier_rust
-
- - Mode & Case Handling in Rust (Specific Rules)
-- General Rust Coding Rules
-
-### "Granmo Models" a Descriptive-Terminology Note:
-I do understand that in 2018 Gramno magnanimously nick-named his creation in honor of a Russian mathematician (rather than himself). However, in 2026 many of us are living in mortal danger of Russian military belligerence, and it is traumatizing to be expected to "honor" the maniacal forces actively trying to kill us. With or without this context, it is my long held general practice to use clear descriptions instead of jargon terms (not popular, but more clear): these are models made by Granmo, so they are accurately described here as "Granmo Models." Refer to Granmo's models here as "Granmo Models." Use of 'T-Machine' 'TM' or convolutional 'CTM' is nearly-acceptable if unavoidable. Note: Not every automaton is a T-Automaton, not every Machine is a T-Machine. Only use T if it is absolutely unavoidable. A-Machine or the like may be a more accurate description. 
-
-
-
-TODO:
-1. In at least one place (probably more) there needs to be better ~error/case handling messaging.
-- When an invalid path is input there is no message, error, etc. silence (not helpful). (maybe there is no input-path error yet? in theory cli-argument issues and path issues should all have clear error codes)
-- Testing is not a 'production loop that needs to run forever', exiting with a code and message is appropriate. if error/case is logged, perhaps print a path to that log on exit.
-- Perhaps return (and print to terminal) an exit-code that is either 0 (ok-doky) or the error code
-
-
-There should also be a glossary (perhaps for the readme if not the .rs module) cleaning explaining terms such as:
-- fire-rate
-- byte-bag
+16. operate on bytes... maybe convolutional? (not BOW/tfidf)
+- https://github.com/RAprogramm/tsetlin-rs/blob/main/src/convolutional.rs 
 - 
 
-Note: after adding v1 seed-repeatable parallelism: 
+
+17. Mode & Case Handling
+- mainly for production-version 
+A. prediction only (not train)
+B. live-update continual training model
+
+
+18. Granmo Byte Convolution for Time Series Classification
+
+
+
+Note: The variation of performance in batch tests such as variations in improvement across different types of text preprocessing (e.g. where mismatched between conv and bag models) might help to illuminate use-cases for models and what model strengths and weaknesses are.
+(and to highlight how data-preprocessing (perhaps like the 'tokenization layer') has a big role or impact on model performance yet exists 'outside of the "model"'). 
+
+
+19. A continual stream evaluator, e.g.
+byte-stream convolution modeling,
+with some kind of paired-offset-window chunks to average-over start-stop points, e.g.
+there are two 128 byte evaluators that return results after 128 byte, which might be in the middle of a word, so, in theory, comparing the output of these two offset by 64byte return schedules, it may be possible to do a continual stream reporting functionality with very light overhead. 
+every 128 bytes
+- bitwise optimized
+- balanced between pre-processing-minimal and performance-best
+- results likely sent to some Database or other endpoint for logging/alerting.
+
+the main 'edge' case might be if a half-word somehow creates a false-positive... but that might be highly unlikely for the convolve-process. 
+
+
+
+20. Learning On The Fly In the Ointment
+Reinforcement Learning with Granmo Automata Game based Models/Architectures:
+With a target being a social-story puzzle ( see https://github.com/stemnetbenchmarks/social_story_and_cookbook_puzzles  ), while it may be a 'difficult' task for an automata that cannot coordinate with another automata using a meaningful signal (so perhaps some pre-existing function-calls might be needed) given enough empirical learned-from experience, could Granmo Automata Game based Models/Architectures learn how to solve individual or classes of social story puzzles, puzzles that require sharing of puzzle state between participants, and ~coordination of actions to solve the puzzle?
+
+maybe-related to data-collection self-learning system 1) single 2) swarm
+
+
+21.
+reporting on an examination of what cases failed test: 
+- in some cases more training variation needed
+- in some cases they are invalid tests - bad data
+
+
+22. Parameters: TeamCompositionPalette & Diversity (very speculative)
+
+Properties of and variation in properties of automata:
+- Question: Can, should, there be a new ~'model training parameter' (or more than one) for: board_species_team_diversity, to adjust how much variation there is properties of the agents in the game. 
+
+
+
+23. Systematic comparison of results of different methods of text-preprocessing
+- raw byte (no preprocessing)
+- ascii lower
+- N spaces, tabs, newlines -> one space
+- porter stemmer
+- lematizer
+- off-the-shelf-tokenizer (yuck)
+- remove symbols
+- check for numbers in words
+- remove numbers
+
+Note: comparing on various texts and languages, not all languages are ascii oriented.
+
+24. better explanation and understanding of different approaches/mechanisms:
+- 'flat'
+- 'convolusion'
+- 'byte bag'
+- 'windowed'
+- 'cluster'
+&
+- "batch"
+
+
+25. List of specific use-cases:
+1. Hostile-etc language detection
+A. For short-form docs such as social media
+B. For any length (if chunked)
+C. For continual streams
+
+2. Text Extraction (maybe model pairs), item start-stop position in text for NER-type extraction, e.g. first-name, last-name, address-items, phone number, email address, age, etc. (e.g. 1. start position, 2. end position, 3. extract (maybe two models and one raw-code)
+
+3. Various models for use in Modular-Eliza type models/architectures, e.g. a schedule question bot, do-one-thing-well focus, that translates unstructured incoming schedule questions into specific queries for a structured schedule database (mostly variations on: what is at time-T? What time is event-E?) Much of this can be entirely deterministic, but having resource-thrifty, explainable, Granmo-Models for various tricky-cases would be a boon. Possibly: language detection, past-future tense detection, requesting help detection, etc.
+NER-BIO-Extraction type extraction
+
+4. No-GPS location/direction updating: turn related, speed/velocity/distance related. Very resource and energy thrift for drone/automata
+
+5. on edge deployment:
+- mobile devices
+- raspi or arduino 
+- field-research devices
+
+6. streaming audio signal compression (like vocoder)
+
+7. video stream compression (single attribute detection for extremely minimal representation)
+
+8. language detection
+
+9. toxic/hate/bully/bad detection
+
+10. sentiment analysis?
+- multi-language sentiment analysis?
+Q: Hybrid VADER+Granmo type system?
+
+
+
+26. Misprediction Inspection:
+Analyze misprediction_log.txt generated during training, to see if errors are from data corruption or label noise vs. from model blind-spots
+
+
+27. Test-Report Suite 1.0
+
+I think it makes sense that some overall next-steps should be improving the test-suite, e.g.
+
+1. clear and detailed logging (missed-cases logging (maybe implemented now), and test-results), display, and results report printing (e.g. model-comparison reports)
+
+2. for comparing models, as in batch should models be compared in real time, or can a N-logs from N-model-types be compared after running for analysis? (perhaps, json of log-data for a given test-set)
+note: test train split being random, maybe requires seed?
+
+3. while some may be presumed dead-ends, I want to formally compare:
+1. clustering (or cluster + flat-bag)
+2. byte-bag
+3. bow-tf-idf (previous code can be shared to merge)
+4. convolution (I suspect this may be good for something...if not for ascii text)
+
+4. Trying to get a few different quality-check-able (ideally) types of tasks/datasets
+1. language Hygiene (current domaine)
+2. "NER" (id/extraction by type)
+3. time series prediction
+4. embedding-vector version of Granmo model
+5. maybe logistic type probability estimation
+6. ...
+7. numerical input https://www.kaggle.com/datasets/jeyasrisenthil/input-data 
+
+5. 'features' to add for more testing
+- "conv-guard"
+
+
+
+28. Explainability Framework
+- model is the map, since json human readable?
+- any other...properties to be mapped... e.g. main 'weights/clauses'?
+- fire-guard test is probably important... (e.g. which clauses are always/never fire)
+- odd/even yes/no vote clauses... those patterns might matter (or if that ratio is modified etc)
+
+
+29. Ongoing Performance Benchmarking Framework
+A. Static Golden Set
+B. Assorted Test-Sets (e.g. added over time)
+C. Past-Times Benchmarks (past performance vs. current)
+D. Recent-Data Benchmark (Recent-cases (not in past test/training sets))
+
+
+30. MER integration
+- SchedulELIZA
+- 1. language detection model
+- 2. question-type detection model
+- 3. event-name extraction model
+A. fixed model
+B. update/retrain
+C. auto/on-fly/train
+
+
+31. Uma Integration
+- A. Language Hygiene
+- Possible specific problem identification models (schedule data, 
+- 
+
+
+32. Use-Cases and Datasets
+- https://www.kaggle.com/datasets/haideradnan77/mental-health-condition-classification 
+- https://www.kaggle.com/datasets/ahmadrosyidalfualdi/student-mental-health-dataset 
+- https://www.kaggle.com/datasets/sohamchaudhari2004/sentiment-dataset
+- 
+
+
+- Time series and next-byte prediction (generalized?)
+- Swarm Learning: Maybe levels of similar problem-space: swarms of interactive TM/GM machines, perhaps coordinating around different 'places' in the overall problem space
+
+Crazy mnist test; tried running byte-conv on mnist converted to single digit identification, better than baseline (and not only predicting one class) but not great.
+
+
+Quasi-Probability:
+- maybe a simpler system: instead of having an overall vote-threshold for prediction (of a binary class),
+you report the raw 'votes' (perhaps divided by the total for a normalized scale), to get a 'degree' rather than binary outcome.
+For topics like 'language toxicity' there are use-cases for 'how much' or 'to what degree' rather than 'yes or no'
+(and possibly another level, maybe swarm-ish) where the various output of various separate models may be used to train another model on another task.
+- 
+
+
+Q: What kind of 'explainability' report (maybe like feature importance, or not?) can be produced after/during training?
+
+
+32. Separating Feature-Creation Stage vs. Feature Importance Stage:
+
+A strength of deep learning is the flexibility of feature engineering being added to the statistically-based feature weighting. Arguably this is at least part of Sutton's (arguably nuanced) 'Bitter Lesson' paper, that using better process and more data is better that relying on human-experts to hand-design the features, just as earlier it was accepted that even human-selected features are best weighed using statistics rather than human intuition. 
+
+Though it may differ significantly by use-case and by modeling-type (convolution, byte-bag, classification-head (single class, multi-class), regression, logistic-probability, next-byte prediction, time series, NLP, audio, video, IoT data, finance, Fin-Tech, Health, etc. etc.):
+
+I am still just starting to learn about Granmo Models (TM etc.) so my understanding is most likely not entirely correct.
+
+Is it the case that at least the currently-tried:
+- Clustering + BOW-TFIDF
+- Windowed BOW-TFIDF
+- Flat BOW-TFIDF
+- Convolution-Byte
+- Byte-Bag
+
+Models are using raw N-Grams as the only source of features, then values for those get decided in distributed game (which perhaps could be extrapolated to on-Edge swarm and multi-sensor distributed model training, maybe).
+
+(Instead of having a pre-set N-Gram (raw, stem, preprocessed, etc.) feature-space:)
+While it may be more detailed and entailed, could we look at the byte level at byte classification or byte prediction (possibly only incidentally different) as being highly non-linear wave-functions within a fixed 8bit-byte 0-256 value range. 
+
+Derived-Features:
+Various kinds of approaches (such as Latent Dirichlet allocation (developed for DNA sequences before NLP use), and various Deep learning approaches from convolution to RNN to LSTM to Attention to Diffusion, etc.) create a feature-space, with the Firth-concept-space being especially famously effective (if also famously expensive). At the same time the lack of paper trail about what these derived features are may be part of the somewhat semantic disagreement about how 'explainable' deep learning models are: the feature-formation process and 'feature log' is (I think) rather buried in the overall soup of the deep-learning pool of 'weights' (again: the theme of separating feature-derivation from feature-application). 
+
+To recap:
+It seems (I may be entire wrong) that the models up until now in these experiments, if not with Granmo models more broadly since 2018, have strongly or exclusively focused on the feature-use/feature-application step/stage, without there being a similarly voted upon discover-derivation process whereby either features as linear and nonlinear functions or features as a separate encoded concept-space.
+
+Also, a perhaps hidden area of this is another feature-deriving step of pre-processing data that for much NLP is separated into a tokenization step which arguably has a very significant effect on up-stream modeling. And strangely: where is the bitter lesson here? We spend billions of dollars on trillion/quintillion weight models and yet we don't trust those models to do a good job of deciding how the tokenization proprocessing is most optimally done? (In saying: "We smart! We know what those first tokens should be!" have we not failed to learn the 'bitter lesson'? And how is this chocolate-bitter lesson pejorative?)
+
+~Heavy-Features vs. ~Functional Features: (Apologies for the terminology)
+An area to consider is how to approach feature derivation. While it might be possible to mirror transformer models with a GM/TM backend to create an equally expensive and large model with a other perks: bitwise not floats, better audits, better pruning, better continued-training, etc,) that is not the direction intended here. 
+
+I am primarily interested in the light-weight, portable, hardware-friendly, Edge-friendly, IoT friendly, low-power-compute for prediction (if not also training) friendly, 'slim and lite' properties of Granmo models. While transformers (and maybe other types such as samba and diffusion) have demonstrated the power of Firth-concept-space, the enormous cost has also been demonstrated.
+
+Are there other ways of getting some more nuanced features and pre-processing steps to feed into the 'end-stage' modeling of weights that get voted on? And is there 
+
+Note: While firth-concept spaces for general models are absurdly large, do-one-thing-well models only need arguably minimal (if articulate) manifolds within those 'general' spaces (most of which is useless for a 'hot dog, not hot dog' model). 
+
+Is it possible to go some depth (and perhaps deep in a thrifty way), given enough data, looking at, perhaps in a Firth approach, not just how each isolated raw input 'part' (n-gram) relates to the prediction problem space, but how relationships between (concepts across) individual raw data points then relate to the end-stage problem space. 
+
+One example or analogy for this may be MNIST, where a 'concept space' of edges and curves and other things is the key to associating pixels to the end-stage problem. As hoped before, for MNIST this does not require the entire universe of all general concepts, just enough for the one task.
+
+So how are MNIST and NLP different? So far as I know, no one claims that "image tokenization" using a one-size-fits-all template (as in the case of n-grams, BOW, and other static tokenizers)) is needed for MNIST and similar tasks. Why not? If image-concepts can be derived by comparing data rows (including 'vertical' edges in serialized data, more alien than audio-time series, text, or DNA-code) how can't at least some word-concept-relationship. This is not to say that any model-archiecture will automatically handle all feature-derivation in every possible way: convolution is one architecture-defined way, RNN another, LSTM another, Attention(transformer) another, etc.) 
+
+(Note: As is traced in the 2026 book "On the Mark: A History of Punctuation from Ancient Egypt to the Emoticon" by Florence Hazrat, the human-concept of having language be space-delimited standard-spelling letter vs. number vs. symbol notated is historically very recent, with most classical language being both non-delimited and where spellings (assuming a given language has the concept of a word at all, e.g. Asian languages) were continually morphing (more like 'Finnegans Wake' than a webster's dictionary). That 'tokenization' helps digital-machines may not be unrelated to how it also probably helps human-biological-machines. But 'tokenizing the stream', like finding edges in an image-file, is part of the modeling process, not literally alien to it (though human-reading has been somewhat pre-digested by preprocessing on a tokenized page).) 
+
+By design or for economy, should we try to cast a wide or narrow net for how feature-derivation may be handled within the modeling process? As different deep-learning architectures (may, if my understanding is not too mangled) orient towards a specific approach to feature-derivation (CNN(narrower), RNN, LSTM, Attention(broader), etc.)? Will there need to be specific GM/TM architectures that are oriented towards a type and breadth of manifolds? And is there some or any direct correlation between GM/TM feature-derivation methods vs. Deep-ANN feature derivation-oriented architectures and techniques? Maybe...maybe not.
+
+Am I suggesting effectively adding 'hidden layers' to a Granmo-Model? May not necessarily: as mentioned above, making a deep network with a Granmo backend could be effective, but that is my goal here. For example, there already are convolutional-function GM/TM models in standard code repos 
+( e.g. https://github.com/RAprogramm/tsetlin-rs ), and those do not require deep-learning in order to convolve a function along a sequence. 
+
+This might vary depending on what the use-case and GM/TM/architecture is (as suggested above). Serialized data such as image data may be different to work with compared with native-series time-series data (audio, prices) vs. NLP natural language and perhaps DNA that have other properties (e.g. word-like abstractions). 
+
+Generation and prediction: Could it be a clue that unlike unsupervised generative model training, for do-one-thing-well labeled data, that context may be material for constructing (confabulating) a raw -> concept -> pattern map. If we have (at least) two classes of data, we already know what the relationship-pools are. How do 0-class-label series patterns relate to each-other in ways that 1-class-label series patterns do not? THis could be passing/convolving functions along the sequence, or chunk-bagging, or looking for byte-wave-functions (or functions of functions), and ideally using the entire sequence as a sequence may be useful when possible (not BOW) (how a string starts and stops may be as relevant as the middle).
+
+Even if the functions-on-functions are elaborate, could we not describe the pattern-matching done by a BOW spam filter as a series of byte-stream wave-functions? Preprocessing is a function. Stemming is a function, tokenization is a function. Relative frequency is a function. Associating 'company they keep' words into concepts is a function. 
+
+Specific project/contexts in progress include:
+- user sentiment detection (text)
+- bullying/hostility detection (text, using kaggle data currently)
+
+- NER-type data extraction for standard fields: name, phone, age, address-fields, email, 
+- specific question identification: 'asking about the time of a known event' & 'asking about the event at and known time' (and extraction: what event, what time) (probably a 'place' dimension of the same)
+
+- image/video: facial emotion/micro-expression classification/detection
+https://www.sei.cmu.edu/blog/revealing-true-emotions-through-micro-expressions-a-machine-learning-approach/ 
+- audio: voice emotion/micro-expression classification/detection
+
+- audio encoding/decoding (slim vocoder) (lossy, but audible)
+- very slim video encoding/decoding (lossy) (currently undefined)
+
+- no-GPS drone video/sensor direction(change) & speed(change) = location(change) [no data for this yet]
+
+- IoT health-sensor data: [no data for this yet]
+
+Types of Systems:
+1. Production Inference/Prediction:
+2. Production Continuous Learning (or period extra-training)
+
+
+possible others:
+- (colour/pattern of one specific object in image)
+- rat-maze NPC/MOB behavior models
+
+
+
+Note: currently a byte-bag is working better for NLP classification that byte-convolution (not surprisingly)
+I am guessing that image vs. audio vs. time-series vs. language (and specific projects in each) will favor a specific approach (not a one-size fits all)
+
+
+
+https://arxiv.org/abs/2309.04801 
+[Submitted on 9 Sep 2023 (v1), last revised 12 Sep 2023 (this version, v2)]
+TMComposites: Plug-and-Play Collaboration Between Specialized Tsetlin Machines
+Ole-Christoffer Granmo
+
+
+https://arxiv.org/abs/2301.00709 
+"To produce such logical embeddings, we introduce a Tsetlin Machine-based autoencoder that learns logical clauses self-supervised."
+[Submitted on 2 Jan 2023]
+Tsetlin Machine Embedding: Representing Words Using Logical Expressions
+Bimal Bhattarai, Ole-Christoffer Granmo, Lei Jiao, Rohan Yadav, Jivitesh Sharma
+
+https://arxiv.org/abs/2501.19018 
+[Submitted on 31 Jan 2025 (v1), last revised 17 Oct 2025 (this version, v3)]
+Scalable Multi-phase Word Embedding Using Conjunctive Propositional Clauses
+Ahmed K. Kadhim, Lei Jiao, Rishad Shafik, Ole-Christoffer Granmo, Bimal Bhattarai
+
+
+
+NN. Tradeoff Separation: No One Pattern (Geometry) is All Patterns, So Separate the needed Patterns.
+
+26. Simple Ensemble Type 1: No One Pattern (Geometry) is All Patterns, So Separate the needed Patterns
+E.g. Parallel Features
+
+Step 1. Try a variety of different feature approaches.
+Step 2. Run separate (Ensemble, perhaps) models based on most effective feature sets.
+Step 3. Maybe tricky, maybe do-able in some cases: Combine N clearer signals into a compromise prediction/inference, rather than one muddled signal.
+
+NLP may be an area with some clear cases of this.
+When pre-processing text, raw, porter-stemmer, lower, strip, remove symbols (or convert specific symbols e.g. leet), etc.
+
+A perhaps crude question is why not try both/all?
+
+Another part of this question may be how to avoid interference between alternate features?
+
+
+A. Semi combinable variations:
+- Porter + raw
+(maybe issue of double-signals)
+
+B. Significantly Different Types:
+e.g. presence(count/frequency) vs. pattern
+- Weighted String Matching
+- TFIDF
+
+- Sequence-pattern of letter 'e' or string 'not' 
+
+
+1. Parallel Encoding/Preprocessing
+
+There are various ways to 'standardize' (or not standardize) a text:
+- lower
+- stemming/lematizing
+- stripping duplicates (space, tab, newline)
+- merging (space, tab, newline)
+- symbol removal
+
+Known: Depending on the task-context (case-by-case), more signal or noise may be captured or lost with a given type of preprocessing. E.g. Sometimes symbols (not letters or numbers) or use of capitalization are key to the signal, sometimes they are noise that separates 'n-grams' that should be merged.
+
+Question: To what degree is this also the case within tasks? To what degree are tasks themselves ensembles of different types of patterns, e.g. for some n-grams raw is best, for some n-grams lower is best, for some n-grams stemming/lemmatizing is best. This might be a case of having a dedicated 'feature-derivation/selection' process (rather than assuming a static feature set or a one-sized-fits-all process).
+
+There may also be [difficulty] levels for this. e.g.
+A. for a whole task, version-N of an n-gram is best 
+vs.
+B. where it is not 'better-worse' but different, and ideally both are used. (perhaps such as where 'color' vs. 'colour' in travel-doc NLP being merged or not will have sub-task pros and cons) (Or is this a case where both can be used?)
+
+What are cases where both pre-processing types cannot be simply used in the same overall pool? Can we assume that in most-cases most n-grams would NOT be *N represented such that simple-pooling would balance out the duplicate signals because everything was evenly duplicated? Are there cases where 'simple pooling' may be a cheap and quick method of integration? What are some of the factors around this? This may be another simple yet not-simple NLP question where various factors case by case. This is likely overly-specific to NLP, especially non-sequence analysis.
+
+For cases such as sequence analysis, there are probably few cases where any form of input duplication (multiply the inputs (create new whole versions of each) and run them all) would be useful; though it should be simple to test that at maybe good to double check.
+
+
+
+
+If there is a way to re-integrate the signals, could an ensemble approach boost performance?
+
+
+
+which may or may not blend into ways of looking at chunks of text: 
+- short n-grams
+- long n-grams
+- tokenizing
+
+
+2. Count-Frequency vs. Pattern-Function
+
+Perhaps for characters and n-grams, is there a way to standardize basic pattern-functions into a feature-set that could be a proxy for count-based TF-IDF
+
+
+Q: Is there such a thing as discontinuous N-grams, e.g.
+"best * ever"
+
+E.g. Regex-Grams?
+
+
+Frequency Comparison:
+It may be useless but I am curious, what would be different ways to look at the time-distribution-pattern of, e.g. the letter 'e' when comparing two types of documents? ('!' Exclamation points in hate-speech may be a more obvious example, but 'e-classification' seems like a good R&D sandbox for various NLP classification tasks.
+
+Maybe vowel-distribution-functions are not useful in most cases, but if they are cheap and they are useful, why not have them in the tool box?
+
+https://www.kaggle.com/datasets/amananandrai/ag-news-classification-dataset
+https://www.kaggle.com/datasets/abdallahwagih/spam-emails 
+https://www.kaggle.com/datasets/tblock/10kgnad 
+
+
+# Production NLP
+Something to keep in mind overall is the real-world cases for multi-lingual NLP applications, where a process hyper-optimized for ascii-English may be academically best-in-class, but not practical for real world use.
+
+
+
+
+Meta-data analysis:
+- proportion of symbols to letters
+- proportion of capitalization
+
+
+27. Count vs. Distribution Pattern in NLP
+
+Broadly speaking, in simplified overview, my understanding of 'best-performing-models' in NLP is that: 
+- for big models and big-data the Transformer-Attention deep learning approach is the breakout leader
+- for small models, small devices, and small data, and narrow models, the non-sequence statistical learning BOW & TFIDF approaches can be adequate.
+
+There are two branches here:
+1. sequence vs. non-sequence (BOW)
+2. symbolic vs. sub-symbolic
+
+The sub-symbolic, I would at least tentatively assert, is likely using both sequence and non-sequence elements (directly or indirectly) (perhaps moot, or incorrect).
+
+The area I want to ask about here is symbolic sequence analysis, in particular using Granmo(T-Machine) approaches.
+
+There are probably non-deep learning ways of looking at 'sequence features' (or not?) that have been parts of not-NLP data science (during the BOW NLP era). 
+
+Even if not likely to be 'best in class,' are there any sequence features that can be defined contrasting labeled classes for NLP/Genomics?
+(E.g. I think LDiA starts with Bag-of-Ngrams, non-sequencial). 
+
+
+Feature-izing distributions (maybe):
+Let's look at the 'letter e' example:
+Between two labeled classes, how could we look at sequential distributions of the letter e between the two classes.
+Can we identify re-find-able properties that tend to be found in one class rather than the other?
+28. Tradeoff-Detection
+Can it be detected when a model is being pulled N directions:
+1. If so, instead of 1-compromise model, make N  specific models
+2. Try to arrange it so that false-positives are minimized, and any positive from the suite will count as positive.
+
+
+
+
+
+
+29. Disco-Granmo: Discontinuous-Set Ensembles / Sub-Problem-Partitian Ensemble
+"No one-pattern is all-patterns, and rarely is one empirical pattern exactly one theoretical pattern."
+
+(Note: making a better cross-random-seed comparison architecture may be a pre-requisite for Disco fun.)
+
+For binary classification:
+
+Training Process:
+1. Fuzzy Start: 
+Using N seeds (maybe 2 or 3 will do to start) as separate workspaces, in each workspace: creates (fuzz) several more or less randomly parametered models.
+
+With or without a process to make one or more models less fuzzy. That each model may only correctly predict a minority 'region' of correct classifications is a feature, not a bug.
+
+(sequence of 2-first or 3-first (which is 2 and which is 3) may not matter)
+2. Remove False Positives (False-negatives are AOK) (some narrowing of scope (loss of TP-predictions is more a feature than a bug).
+
+3. Compare models across seeds and look at overlap and select a set of component models that cover as much of the dataset as possible; possible method: leasts-worst-subtraction. Remove any models that are entirely overlapping with other models (maybe comparing random subtraction sequences).
+
+4. Some way to call each model in ensemble (maybe in parallel), or the equivalent.
+
+Note: this might employ more or less different models that are seeing different patterns, such as sequence-based (convolution) vs. frequency based (bow/tfidf/byte-bag), and using different preprocessing (raw, lower, strip, stem, remove-stop-words, symbol-substitutions, etc.)
+
+Note: The main part which I have not figured out is feasibility or how to remove false-positives. My first two thoughts/speculations are: 
+1. That the internal process of voting/criterial could be tweaked for an 'imbalanced' rather than balanced outcome.
+2. 'Drop-out' test where (across random seeds), if disabling a clause (or ~clause-set) removes a false positive: then disable the ~clause-set, repeat until no more false positives remain. (I am still looking into how clauses are interconnected (e.g. even numbered pairs and sets of connected pairs?)
+
+There may be ways already in the dencentralized game that are more elegant and lead to a similar outcome.
+
+This may not work, but part of the thinking comes from how significantly different starting parameters can be later refined to two different equilibria:
+
+For IMDB review dataset:
 ```
-**Behavior-changing, expected.** The RNG contract change alters training *trajectories* (not semantics). These three stochastic-outcome tests may need retuning exactly as their own Test-Notes anticipate:
-
-- `learns_byte_level_negation_micro_corpus`
-- `bag_learns_negation_micro_corpus`
-- `harness_end_to_end_on_negation_corpus` / `harness_bag_engine_end_to_end_on_negation_corpus`
-```
-
-Note: This is the current output:
-1. The default starter-settings I lowered for quick-test-start:
-
-$ cargo run -- --mode train --data 
-/home/ABC/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl --model-out /home/ABC/models/byte_test_2
-   Compiling byte_convolution_series_teamgames v0.1.0 (/home/ABC/code/granmo_model_nlp_classifier_rust/byte_convolution_series_teamgames)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.61s
-     Running `target/debug/byte_convolution_series_teamgames --mode train --data /home/ABC/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl --model-out /home/ABC/models/byte_test_2`
-loaded 99879 labeled documents
-resolved config: HarnessRunConfig { profile: PreprocessProfile { stage_bits: 15 }, engine_selection: ByteConv, patch_size: 5, stride: 2, bag_ngram_len: 5, bag_vocab_size: 100, n_clauses: 50, vote_threshold: 50, states_per_action: 10, specificity: 5.0, max_scan_bytes: 1024, guarded_include: false, epochs: 5, seed: 42 }
---- run: p0 [engine: byte-conv] ---
-  train/test: 79903/19976   train time: 579.76s
-  accuracy @ V>0:   0.7754
-  best-F1 threshold 1: P 0.8377 R 0.8296 F1 0.8337  (TP 8289 FP 1606 TN 8379 FN 1702)
-  fire-rate over 19976 test docs: never 17/50  always 2/50  p25 0.0%  median 1.3%  p75 12.8%
-saved model artifact to /home/ABC/models/byte_test_2
-
-
- 
-vs. sort of similar-ish parameters (not all are comparable)
-
-cargo run --release --   --mode train   --train /home/ABC/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl   --text-col text   --label-col label   --jsonl   --model-type flat   --model-path /home/ABC/models/Cyber_Bully_Data_binary_class-v5-slim-model.json   --epochs 5   --clauses 50   --threshold 50   --specificity 5   --max-features 100
-    Finished `release` profile [optimized] target(s) in 0.01s
-     Running `target/release/granmo_windowed_nlp --mode train --train /home/ABC/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl --text-col text --label-col label --jsonl --model-type flat --model-path /home/ABC/models/Cyber_Bully_Data_binary_class-v5-slim-model.json --epochs 5 --clauses 50 --threshold 50 --specificity 5 --max-features 100`
-Loading training dataset from: /home/ABC/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl
-  Total records loaded: 99879
-Splitting dataset (99879 total rows) into 80% train / 20% test...
-  Split: 79903 train rows, 19976 test rows
-[1/3] Building vocabulary across 79903 documents...
-  Active vocabulary features: 100
-[2/3] Pre-computing flat BOW vectors (baseline path)...
-[3/3] Training flat VanillaTM (5 epochs, 2 classes)...
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Evaluated Samples: 19976
-  Training Time:     13.11s
-  Accuracy:        82.05%
-  Macro Precision: 0.8460
-  Macro Recall:    0.8210
-  Macro F1-Score:  0.8173
-------------------------------------------------------------
-Confusion Matrix (Rows: Actual, Columns: Predicted):
-               1             0             
-1              9520          432           
-0              3153          6871          
-============================================================
-
-# Batches
-(Note: Obviously, more tests on more datasets are needed.)
-
-During improved dataset cleaning-deduplication, fuzzy-duplicate rows (string distance) as well as exact duplicates were removed.
-
-Two areas to look at to gain insights about 'what' and 'how' is happening in 'byte-bag' vs. 'Conv' type models are:
-1. Preprocessing: p0-p2 (maybe others should be added or a separate-batch, e.g. p1, p4, p5). Perhaps predictably, byte-bag is 'juiced' by the ability to 'tokenize' standard ascii patterns (classic NLP). Whereas the 'conv' model may prefer less 'word' oriented problem-space geometries.
-
-2. Data-Issues: Comparing before and after deduplication, Byte-Bag was more ~'resiliant to imprecise data' than 'Conv' type, in that Byte-Bag's artificial-boost in performance from duplicate lines appearing as leaks in the test set (and perhaps issues from duplicates in training). Conv's performance (for this one dataset, as much as that can be read into) was roughly 70-80% "accuracy" on dirty data, and 50-60% on cleaned. Byte-Bag was 98.3-99.1% accuracy on dirty data vs. 96.1-97.7% accuracy on cleaned data.
-
-(And, for byte-bag perhaps more always-fires issues using the cleaned data:
-dirty-data:
-
-
-cleaned-data:
-never 0/600  
-always 40/600 to 50/600 
-
-dirty-data:
-never 0/600  
-always 23/600 to 25/600
-)
-
-Also, the type of preprocessing that did best might also have changed.
-Dirty Data: P1
-Clean Data: P0
-
-I have not commonly heard that 'deliberately testing with bad, leaky, data' can be useful, but such comparisons may be useful in seeing how a model behaves. (There may also be real-life situations where perfectly-clean data may be infeasible.)
-
- 
-
-# Take 3
-- not fully deduplicated
-
-No guard
-```
-$ cargo run --release --   --mode batch   --data /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl   --model-out /home/oops/models/batchcyber_conv_v3.gmb   --clauses 600   --vote-threshold 160   --stride 1   --patch 5   --specificity 3.0   --states 200   --vocab-size 4000   --ngram-len 5   --epochs 12   --seed 42   --workers auto
-    Finished `release` profile [optimized] target(s) in 0.02s
-     Running `target/release/para_byte_ganmo --mode batch --data /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl --model-out /home/oops/models/batchcyber_conv_v3.gmb --clauses 600 --vote-threshold 160 --stride 1 --patch 5 --specificity 3.0 --states 200 --vocab-size 4000 --ngram-len 5 --epochs 12 --seed 42 --workers auto`
-batch over 79903 train / 19976 test documents, seed 42
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        raw          (Engine: byte-conv)
-  Train/Test Split:  79903/19976 samples
-  Training Time:     579.49s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 70.98%
-  Best-F1 Threshold:  V > 10
-  Precision:          0.7342
-  Recall:             0.8194
-  F1-Score:           0.7745
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    7021        2964        
-Actual Pos (1)    1804        8187        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19976 test docs: never 16/600  always 71/600  p25 9.2%  median 17.2%  p75 27.1%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        raw          (Engine: byte-bag)
-  Train/Test Split:  79903/19976 samples
-  Training Time:     504.85s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 98.32%
-  Best-F1 Threshold:  V > -2
-  Precision:          0.9924
-  Recall:             0.9745
-  F1-Score:           0.9833
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9910        75          
-Actual Pos (1)    255         9736        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19976 test docs: never 0/600  always 24/600  p25 10.6%  median 26.0%  p75 27.5%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p0           (Engine: byte-conv)
-  Train/Test Split:  79903/19976 samples
-  Training Time:     562.41s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 63.07%
-  Best-F1 Threshold:  V > -35
-  Precision:          0.5571
-  Recall:             0.9512
-  F1-Score:           0.7027
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    2430        7555        
-Actual Pos (1)    488         9503        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19976 test docs: never 37/600  always 96/600  p25 4.7%  median 14.0%  p75 27.4%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p0           (Engine: byte-bag)
-  Train/Test Split:  79903/19976 samples
-  Training Time:     468.79s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 99.08%
-  Best-F1 Threshold:  V > 1
-  Precision:          0.9961
-  Recall:             0.9859
-  F1-Score:           0.9909
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9946        39          
-Actual Pos (1)    141         9850        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19976 test docs: never 0/600  always 25/600  p25 12.9%  median 25.8%  p75 27.2%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p1           (Engine: byte-conv)
-  Train/Test Split:  79903/19976 samples
-  Training Time:     560.69s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 67.56%
-  Best-F1 Threshold:  V > 19
-  Precision:          0.7492
-  Recall:             0.7994
-  F1-Score:           0.7735
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    7311        2674        
-Actual Pos (1)    2004        7987        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19976 test docs: never 14/600  always 82/600  p25 8.5%  median 18.2%  p75 26.9%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p1           (Engine: byte-bag)
-  Train/Test Split:  79903/19976 samples
-  Training Time:     503.12s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 98.26%
-  Best-F1 Threshold:  V > 2
-  Precision:          0.9932
-  Recall:             0.9720
-  F1-Score:           0.9825
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9919        66          
-Actual Pos (1)    280         9711        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19976 test docs: never 0/600  always 27/600  p25 10.6%  median 26.2%  p75 27.5%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p2           (Engine: byte-conv)
-  Train/Test Split:  79903/19976 samples
-  Training Time:     570.81s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 61.52%
-  Best-F1 Threshold:  V > -23
-  Precision:          0.5573
-  Recall:             0.9321
-  F1-Score:           0.6975
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    2586        7399        
-Actual Pos (1)    678         9313        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19976 test docs: never 35/600  always 88/600  p25 4.0%  median 12.1%  p75 27.2%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p2           (Engine: byte-bag)
-  Train/Test Split:  79903/19976 samples
-  Training Time:     456.46s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 99.10%
-  Best-F1 Threshold:  V > 1
-  Precision:          0.9963
-  Recall:             0.9862
-  F1-Score:           0.9912
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9948        37          
-Actual Pos (1)    138         9853        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19976 test docs: never 0/600  always 23/600  p25 12.9%  median 25.4%  p75 26.9%
-============================================================
+  --clauses 300 --vote-threshold 75 --states 85 \
+  --specificity 3.7 --vocab-size 8000 --ngram-len 5 \
 
 ```
-
-Guard
+vs.
 ```
-$ cargo run --release -- \
-  --mode batch \
-  --data /home/ABC/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl \
-  --model-out /home/oops/models/batchcyber_conv_v3.gmb \
-  --clauses 600 \
-  --vote-threshold 160 \
-  --stride 1 \
-  --patch 5 \
-  --specificity 3.0 \
-  --states 200 \
-  --vocab-size 4000 \
-  --ngram-len 5 \
-  --epochs 12 \
-  --guarded \
-  --seed 42 \
-  --workers auto
-    Finished `release` profile [optimized] target(s) in 0.02s
-     Running `target/release/para_byte_ganmo --mode batch --data /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_v2.jsonl --model-out /home/ABC/models/batchcyber_conv_v3.gmb --clauses 600 --vote-threshold 160 --stride 1 --patch 5 --specificity 3.0 --states 200 --vocab-size 4000 --ngram-len 5 --epochs 12 --guarded --seed 42 --workers auto`
-batch over 79903 train / 19976 test documents, seed 42
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        raw          (Engine: byte-conv)
-  Train/Test Split:  79903/19976 samples
-  Training Time:     600.13s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 79.11%
-  Best-F1 Threshold:  V > -1
-  Precision:          0.7676
-  Recall:             0.8318
-  F1-Score:           0.7984
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    7469        2516        
-Actual Pos (1)    1680        8311        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19976 test docs: never 11/600  always 82/600  p25 9.4%  median 19.0%  p75 27.1%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        raw          (Engine: byte-bag)
-  Train/Test Split:  79903/19976 samples
-  Training Time:     543.61s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 98.32%
-  Best-F1 Threshold:  V > -2
-  Precision:          0.9924
-  Recall:             0.9745
-  F1-Score:           0.9833
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9910        75          
-Actual Pos (1)    255         9736        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19976 test docs: never 0/600  always 24/600  p25 10.6%  median 26.0%  p75 27.5%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p0           (Engine: byte-conv)
-  Train/Test Split:  79903/19976 samples
-  Training Time:     622.59s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 62.49%
-  Best-F1 Threshold:  V > 23
-  Precision:          0.6723
-  Recall:             0.7453
-  F1-Score:           0.7069
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    6356        3629        
-Actual Pos (1)    2545        7446        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19976 test docs: never 42/600  always 83/600  p25 4.1%  median 13.5%  p75 27.1%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p0           (Engine: byte-bag)
-  Train/Test Split:  79903/19976 samples
-  Training Time:     513.21s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 99.08%
-  Best-F1 Threshold:  V > 1
-  Precision:          0.9961
-  Recall:             0.9859
-  F1-Score:           0.9909
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9946        39          
-Actual Pos (1)    141         9850        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19976 test docs: never 0/600  always 25/600  p25 12.9%  median 25.8%  p75 27.2%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p1           (Engine: byte-conv)
-  Train/Test Split:  79903/19976 samples
-  Training Time:     613.13s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 73.26%
-  Best-F1 Threshold:  V > 3
-  Precision:          0.7177
-  Recall:             0.8057
-  F1-Score:           0.7592
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    6819        3166        
-Actual Pos (1)    1941        8050        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19976 test docs: never 18/600  always 78/600  p25 8.6%  median 18.6%  p75 27.1%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p1           (Engine: byte-bag)
-  Train/Test Split:  79903/19976 samples
-  Training Time:     523.54s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 98.26%
-  Best-F1 Threshold:  V > 2
-  Precision:          0.9932
-  Recall:             0.9720
-  F1-Score:           0.9825
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9919        66          
-Actual Pos (1)    280         9711        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19976 test docs: never 0/600  always 27/600  p25 10.6%  median 26.2%  p75 27.5%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p2           (Engine: byte-conv)
-  Train/Test Split:  79903/19976 samples
-  Training Time:     597.90s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 65.00%
-  Best-F1 Threshold:  V > -44
-  Precision:          0.5582
-  Recall:             0.9400
-  F1-Score:           0.7005
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    2552        7433        
-Actual Pos (1)    599         9392        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19976 test docs: never 39/600  always 93/600  p25 4.2%  median 14.5%  p75 27.5%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p2           (Engine: byte-bag)
-  Train/Test Split:  79903/19976 samples
-  Training Time:     488.69s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 99.10%
-  Best-F1 Threshold:  V > 1
-  Precision:          0.9963
-  Recall:             0.9862
-  F1-Score:           0.9912
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9948        37          
-Actual Pos (1)    138         9853        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19976 test docs: never 0/600  always 23/600  p25 12.9%  median 25.4%  p75 26.9%
-============================================================
-
-
-
----
-
-# take 4
-- Deduplicator-cleaner has been make and used on this dataset, 
-thousands of exact duplicates and hundreds of near-duplicates (found with Levenshtein) were removed.
-
-- de-duplicated cleaned jsonl (sure-load) dataset
-
-$ cargo run --release --   --mode batch   --data /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_dedupe_v3.jsonl   --model-out /home/oops/models/batchcyber_conv_v3.gmb   --clauses 600   --vote-threshold 160   --stride 1   --patch 5   --specificity 3.0   --states 200   --vocab-size 4000   --ngram-len 5   --epochs 12   --seed 42   --workers auto
-    Finished `release` profile [optimized] target(s) in 0.02s
-     Running `target/release/para_byte_ganmo --mode batch --data /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_dedupe_v3.jsonl --model-out /home/oops/models/batchcyber_conv_v3.gmb --clauses 600 --vote-threshold 160 --stride 1 --patch 5 --specificity 3.0 --states 200 --vocab-size 4000 --ngram-len 5 --epochs 12 --seed 42 --workers auto`
-batch over 79788 train / 19948 test documents, seed 42
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        raw          (Engine: byte-conv)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     542.97s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 59.75%
-  Best-F1 Threshold:  V > -54
-  Precision:          0.7138
-  Recall:             0.8274
-  F1-Score:           0.7664
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    6702        3300        
-Actual Pos (1)    1717        8229        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 7/600  always 103/600  p25 9.5%  median 20.1%  p75 26.8%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        raw          (Engine: byte-bag)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     475.93s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 96.17%
-  Best-F1 Threshold:  V > 24
-  Precision:          0.9922
-  Recall:             0.9719
-  F1-Score:           0.9820
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9926        76          
-Actual Pos (1)    279         9667        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 0/600  always 48/600  p25 10.6%  median 26.3%  p75 27.4%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p0           (Engine: byte-conv)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     547.37s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 53.01%
-  Best-F1 Threshold:  V > -124
-  Precision:          0.5505
-  Recall:             0.9471
-  F1-Score:           0.6963
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    2310        7692        
-Actual Pos (1)    526         9420        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 25/600  always 123/600  p25 4.6%  median 18.8%  p75 29.1%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p0           (Engine: byte-bag)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     437.31s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 97.68%
-  Best-F1 Threshold:  V > 22
-  Precision:          0.9948
-  Recall:             0.9852
-  F1-Score:           0.9900
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9951        51          
-Actual Pos (1)    147         9799        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 0/600  always 44/600  p25 12.8%  median 25.8%  p75 27.1%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p1           (Engine: byte-conv)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     575.90s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 60.85%
-  Best-F1 Threshold:  V > -50
-  Precision:          0.7123
-  Recall:             0.8117
-  F1-Score:           0.7588
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    6742        3260        
-Actual Pos (1)    1873        8073        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 12/600  always 108/600  p25 10.1%  median 20.8%  p75 26.8%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p1           (Engine: byte-bag)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     486.97s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 97.03%
-  Best-F1 Threshold:  V > 22
-  Precision:          0.9953
-  Recall:             0.9673
-  F1-Score:           0.9811
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9957        45          
-Actual Pos (1)    325         9621        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 0/600  always 41/600  p25 10.6%  median 26.0%  p75 27.4%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p2           (Engine: byte-conv)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     558.05s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 54.98%
-  Best-F1 Threshold:  V > -114
-  Precision:          0.5480
-  Recall:             0.9415
-  F1-Score:           0.6928
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    2279        7723        
-Actual Pos (1)    582         9364        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 34/600  always 124/600  p25 4.6%  median 18.6%  p75 28.9%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p2           (Engine: byte-bag)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     444.90s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 97.15%
-  Best-F1 Threshold:  V > 30
-  Precision:          0.9970
-  Recall:             0.9847
-  F1-Score:           0.9908
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9973        29          
-Actual Pos (1)    152         9794        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 0/600  always 49/600  p25 12.8%  median 25.8%  p75 27.1%
-============================================================
-
-Guard
-
-$ cargo run --release --   --mode batch   --data /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_dedupe_v3.jsonl   --model-out /home/oops/models/batchcyber_conv_v3.gmb   --clauses 600   --vote-threshold 160   --stride 1   --patch 5   --specificity 3.0   --states 200   --vocab-size 4000   --ngram-len 5   --epochs 12   --seed 42   --workers auto
-    Finished `release` profile [optimized] target(s) in 0.02s
-     Running `target/release/para_byte_ganmo --mode batch --data /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_dedupe_v3.jsonl --model-out /home/oops/models/batchcyber_conv_v3.gmb --clauses 600 --vote-threshold 160 --stride 1 --patch 5 --specificity 3.0 --states 200 --vocab-size 4000 --ngram-len 5 --epochs 12 --seed 42 --workers auto`
-batch over 79788 train / 19948 test documents, seed 42
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        raw          (Engine: byte-conv)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     542.97s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 59.75%
-  Best-F1 Threshold:  V > -54
-  Precision:          0.7138
-  Recall:             0.8274
-  F1-Score:           0.7664
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    6702        3300        
-Actual Pos (1)    1717        8229        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 7/600  always 103/600  p25 9.5%  median 20.1%  p75 26.8%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        raw          (Engine: byte-bag)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     475.93s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 96.17%
-  Best-F1 Threshold:  V > 24
-  Precision:          0.9922
-  Recall:             0.9719
-  F1-Score:           0.9820
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9926        76          
-Actual Pos (1)    279         9667        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 0/600  always 48/600  p25 10.6%  median 26.3%  p75 27.4%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p0           (Engine: byte-conv)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     547.37s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 53.01%
-  Best-F1 Threshold:  V > -124
-  Precision:          0.5505
-  Recall:             0.9471
-  F1-Score:           0.6963
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    2310        7692        
-Actual Pos (1)    526         9420        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 25/600  always 123/600  p25 4.6%  median 18.8%  p75 29.1%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p0           (Engine: byte-bag)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     437.31s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 97.68%
-  Best-F1 Threshold:  V > 22
-  Precision:          0.9948
-  Recall:             0.9852
-  F1-Score:           0.9900
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9951        51          
-Actual Pos (1)    147         9799        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 0/600  always 44/600  p25 12.8%  median 25.8%  p75 27.1%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p1           (Engine: byte-conv)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     575.90s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 60.85%
-  Best-F1 Threshold:  V > -50
-  Precision:          0.7123
-  Recall:             0.8117
-  F1-Score:           0.7588
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    6742        3260        
-Actual Pos (1)    1873        8073        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 12/600  always 108/600  p25 10.1%  median 20.8%  p75 26.8%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p1           (Engine: byte-bag)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     486.97s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 97.03%
-  Best-F1 Threshold:  V > 22
-  Precision:          0.9953
-  Recall:             0.9673
-  F1-Score:           0.9811
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9957        45          
-Actual Pos (1)    325         9621        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 0/600  always 41/600  p25 10.6%  median 26.0%  p75 27.4%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p2           (Engine: byte-conv)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     558.05s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 54.98%
-  Best-F1 Threshold:  V > -114
-  Precision:          0.5480
-  Recall:             0.9415
-  F1-Score:           0.6928
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    2279        7723        
-Actual Pos (1)    582         9364        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 34/600  always 124/600  p25 4.6%  median 18.6%  p75 28.9%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p2           (Engine: byte-bag)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     444.90s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 97.15%
-  Best-F1 Threshold:  V > 30
-  Precision:          0.9970
-  Recall:             0.9847
-  F1-Score:           0.9908
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9973        29          
-Actual Pos (1)    152         9794        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 0/600  always 49/600  p25 12.8%  median 25.8%  p75 27.1%
-============================================================
-
-oops@fedora:~/code/granmo_model_nlp_classifier_rust/para_byte_ganmo$ ^C
-oops@fedora:~/code/granmo_model_nlp_classifier_rust/para_byte_ganmo$ cargo run --release --   --mode batch   --data /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_dedupe_v3.jsonl   --model-out /home/oops/models/batchcyber_conv_v3.gmb   --clauses 600   --vote-threshold 160   --stride 1   --patch 5   --specificity 3.0   --states 200   --vocab-size 4000   --ngram-len 5   --epochs 12   --seed 42   --workers auto --guarded
-    Finished `release` profile [optimized] target(s) in 0.02s
-     Running `target/release/para_byte_ganmo --mode batch --data /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_dedupe_v3.jsonl --model-out /home/oops/models/batchcyber_conv_v3.gmb --clauses 600 --vote-threshold 160 --stride 1 --patch 5 --specificity 3.0 --states 200 --vocab-size 4000 --ngram-len 5 --epochs 12 --seed 42 --workers auto --guarded`
-oops@fedora:~/code/granmo_model_nlp_classifier_rust/para_byte_ganmo$ cargo run --release --   --mode batch   --data /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_dedupe_v3.jsonl   --model-out /home/oops/models/batchcyber_conv_v4.gmb   --clauses 600   --vote-threshold 160   --stride 1   --patch 5   --specificity 3.0   --states 200   --vocab-size 4000   --ngram-len 5   --epochs 12   --seed 42   --workers auto --guarded
-    Finished `release` profile [optimized] target(s) in 0.00s
-     Running `target/release/para_byte_ganmo --mode batch --data /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_dedupe_v3.jsonl --model-out /home/oops/models/batchcyber_conv_v4.gmb --clauses 600 --vote-threshold 160 --stride 1 --patch 5 --specificity 3.0 --states 200 --vocab-size 4000 --ngram-len 5 --epochs 12 --seed 42 --workers auto --guarded`
-oops@fedora:~/code/granmo_model_nlp_classifier_rust/para_byte_ganmo$ cargo run --release --   --mode batch   --data /home/oops/datasets/NLP/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_dedupe_v3.jsonl   --model-out /home/oops/models/batchcyber_conv_v4.gmb   --clauses 600   --vote-threshold 160   --stride 1   --patch 5   --specificity 3.0   --states 200   --vocab-size 4000   --ngram-len 5   --epochs 12   --seed 42   --workers auto --guarded
-    Finished `release` profile [optimized] target(s) in 0.00s
-     Running `target/release/para_byte_ganmo --mode batch --data /home/oops/datasets/NLP/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_dedupe_v3.jsonl --model-out /home/oops/models/batchcyber_conv_v4.gmb --clauses 600 --vote-threshold 160 --stride 1 --patch 5 --specificity 3.0 --states 200 --vocab-size 4000 --ngram-len 5 --epochs 12 --seed 42 --workers auto --guarded`
-batch over 79788 train / 19948 test documents, seed 42
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        raw          (Engine: byte-conv)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     563.51s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 65.17%
-  Best-F1 Threshold:  V > -43
-  Precision:          0.7566
-  Recall:             0.8365
-  F1-Score:           0.7945
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    7325        2677        
-Actual Pos (1)    1626        8320        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 9/600  always 94/600  p25 10.1%  median 19.9%  p75 26.8%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        raw          (Engine: byte-bag)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     490.18s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 96.17%
-  Best-F1 Threshold:  V > 24
-  Precision:          0.9922
-  Recall:             0.9719
-  F1-Score:           0.9820
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9926        76          
-Actual Pos (1)    279         9667        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 0/600  always 48/600  p25 10.6%  median 26.3%  p75 27.4%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p0           (Engine: byte-conv)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     564.62s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 56.51%
-  Best-F1 Threshold:  V > -57
-  Precision:          0.6656
-  Recall:             0.7562
-  F1-Score:           0.7080
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    6223        3779        
-Actual Pos (1)    2425        7521        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 30/600  always 105/600  p25 4.6%  median 18.6%  p75 26.8%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p0           (Engine: byte-bag)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     456.24s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 97.68%
-  Best-F1 Threshold:  V > 22
-  Precision:          0.9948
-  Recall:             0.9852
-  F1-Score:           0.9900
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9951        51          
-Actual Pos (1)    147         9799        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 0/600  always 44/600  p25 12.8%  median 25.8%  p75 27.1%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p1           (Engine: byte-conv)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     541.31s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 57.76%
-  Best-F1 Threshold:  V > -56
-  Precision:          0.7289
-  Recall:             0.8033
-  F1-Score:           0.7643
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    7030        2972        
-Actual Pos (1)    1956        7990        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 12/600  always 107/600  p25 9.6%  median 20.9%  p75 27.0%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p1           (Engine: byte-bag)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     465.83s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 97.03%
-  Best-F1 Threshold:  V > 22
-  Precision:          0.9953
-  Recall:             0.9673
-  F1-Score:           0.9811
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9957        45          
-Actual Pos (1)    325         9621        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 0/600  always 41/600  p25 10.6%  median 26.0%  p75 27.4%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p2           (Engine: byte-conv)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     542.48s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 54.48%
-  Best-F1 Threshold:  V > -65
-  Precision:          0.6334
-  Recall:             0.7765
-  F1-Score:           0.6977
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    5532        4470        
-Actual Pos (1)    2223        7723        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 43/600  always 113/600  p25 4.1%  median 18.5%  p75 27.0%
-============================================================
-
-
-============================================================
-               Classification Evaluation Report             
-============================================================
-  Run Preset:        p2           (Engine: byte-bag)
-  Train/Test Split:  79788/19948 samples
-  Training Time:     436.67s
-------------------------------------------------------------
-  Accuracy (@ V > 0): 97.15%
-  Best-F1 Threshold:  V > 30
-  Precision:          0.9970
-  Recall:             0.9847
-  F1-Score:           0.9908
-------------------------------------------------------------
-Confusion Matrix (at optimal threshold):
-                  Pred Neg (0)Pred Pos (1)
-Actual Neg (0)    9973        29          
-Actual Pos (1)    152         9794        
-------------------------------------------------------------
-Clause Dynamics:
-  fire-rate over 19948 test docs: never 0/600  always 49/600  p25 12.8%  median 25.8%  p75 27.1%
-============================================================
-
-
-commentary by Claude:
+  --clauses 400 --vote-threshold 105 --states 85 \
+  --specificity 4.2 --vocab-size 10000 --ngram-len 6 \
 ```
-Reading the Batch Results
-First, the headline findings (these are significant)
+Both perform around 85% (but I suspect not exactly the same 85%, and just maybe two heads are better than one).
+#### Species Diversity vs. Ecosystem Diversity (analogy-terms)
+One issue or factor in disco-style ensembles, is how similar the models are. If models are 'species variants', they may be able to be (if desirable overall) combined in a more internal way (perhaps within the already 'decentralized' voting system. But as may have been shown in the case of early experiments with combining a frequency-based model and a sequence-based model into a crude ensemble, the outcomes is worse performance not better, such that the two are interfering and not supporting each-other. The 'no-false-positives' policy may be part that problem space. But another type of factor (again going back to pre-processing sometimes being a kind of 'shadow-administration' second-model) is where there is a different preclusive pre-processing of the data, requiring another level to orchestrating the ~parallel ensemble 'breakdown-buildup' leading to a single result from a single input (after being split and then (re)joined in the middle).
 
-Finding 1 — M-ByteBag gate answered decisively: sub-word granularity alone is a massive win. The byte-5-gram bag at F1 0.965–0.983 crushes the Phase-1 word-BOW comparator (~0.82) on the same dataset. That answers the original Milestone-1 gate question ("does sub-word granularity alone move accuracy?") — yes, dramatically. This is a publishable-quality internal finding regardless of what happens with convolution.
+Another design question note is whether it is better to add this Disco-Ensemble functionality to the current code base (and make a disco-batch comparison (or more than one) testing feature) or whether it conflicts and should be a repo-fork. Being able to add to a larger set of compare-able tools would be ideal, so that during data-set-exploration tests can be run to show the relative-effectiveness of different approaches (as in the batch-test feature). 
 
-Finding 2 — S2-7 diagnostic, current position: Conv(no-guard) < Bag, by a wide margin (F1 ~0.80–0.84 vs ~0.965–0.983). Per the locked diagnostic table, this pattern has two possible readings, and we cannot yet distinguish them because the guard arm hasn't run:
 
-defect is real and the guard repairs it → run Conv(guard) to test, or
-convolution is not earning its complexity on this task.
+#### Representing & Visualizing 'Populations' of Patterns: To understand the problem-space and the dataset
+As with the classic and eternal 'Genie in the Lamp' problem in Data Science, without future information or insights we do not know (or cannot know) at any given time if the question we are trying to formulate is malformed, such as trying to incorrectly combine multiple questions into one or inadvertently asking more and more ambiguous questions that we intended, or asking a technically-too-narrow question (such as the robot that learned to 'toss up and catch a ball without dropping it' by micro-vibrating the robotic hand).
 
-Finding 3 — the conv fire-rate report corroborates the dead-clause hypothesis. Conv shows 12–28/200 never-firing clauses across presets (bag: 0/200 in every run), plus best-F1 thresholds displaced well off zero (−15 for raw) on a balanced dataset (your value_counts confirms 50/50) — that is vote imbalance, exactly the signature the mutual-exclusion defect predicts (dead/starved clauses concentrated unevenly across polarities).
+A first crude form of visualizing Discontinuous problem spaces (perhaps especially common in vaguely defined natural-language topics and datasets) may be a %-coverage map of how many and what size 'continents' of the dataset (across random-seeds for splits) are covered by no-false-positive models, and what % is not covered by any model. If possible it would be useful to find overlap/tradeoff relationships, or the 'distance' between what 'data-rows' are predicted by each model (how much overlap). 
 
-Before concluding "conv loses" — one confound must be controlled: capacity asymmetry
 
-This comparison is not yet capacity-fair, and it's worth being explicit:
+Note on comparing clauses: Because clauses may be listed in arbitrary order (the index does not tell you which clause is which)
+If outputs (e.g. clause_fire_counts & clause_include_totals) slot number indexed, then to do cross-seed analysis the harness should have the clause rule in addition to the index. A byte-bag engine rule could be written to use shingle bytes (not vocabulary rank).
 
-A conv clause can express essentially one K-byte positional pattern (a slot with a positive include allows one byte). 200 clauses = at most ~100 positive-polarity patterns total.
-A bag clause draws literals from a 2000-shingle vocabulary and can require/forbid combinations. Its effective feature space is 10–20× richer at these settings.
 
-So the bag isn't just "non-positional vs positional" here — it's also "2000 features vs ~100 pattern slots." The §8 single-variable discipline requires we separate those. Secondary confounds: stride 2 (patterns at odd offsets need duplicate clauses — the recorded S2 cost) and possibly epoch count for the noisier conv feedback (single-sampled-window attribution).
+Idea/Question: As there may be situations where a clause sometimes produces 1 or 2 (out of 10k) false positives, but boosts f1/accuracy significantly: maybe go to have user select how many false positives are acceptable, e.g. u8 0-255
 
-Proposed next runs (in priority order, your time budget permitting)
 
-Conv runs take ~8 min each at 200 clauses; clause count scales roughly linearly.
+30. 'Fire-Guard,' Bad-Data-Row Screening, & Seed/Cross-validation Questions:
+Q1: Should the fire-analysis and fire-guard be (if possible) analyzed across seeds? (part of larger question about if k-fold cross-validation can be implemented)
 
-Conv + --guarded, p0, otherwise identical (~8 min) — directly resolves the S2-7 ambiguity. This is the single most informative run available.
-Conv, 1000 clauses, p0, no guard (~40 min) — the capacity-fairness control. If conv at 1000 clauses still sits far below bag-at-200-clauses/2000-vocab, the "not earning complexity" reading strengthens materially.
-Conv, stride 1, p0 (~16 min, double scan cost) — quantifies the recorded S=2 parity cost.
-Optionally the combination (guard + 1000 clauses + S1) as the conv best-case.
+Q2: Should some kind of data-quality or row-suspiciousness examination be done before penalizing clauses/rules for how they behave on an erroneous data-row?
 
-If 1–3 all fail to close the gap substantially, the honest §8 conclusion is the one the plan explicitly anticipated: "If ByteConvTM only matches [or loses to] the flat byte-n-gram baseline, the convolution machinery is not earning its complexity — that is itself a valid finding" — and the crate's production value pivots to the ByteBag engine (which is genuinely strong) with conv retained for the stream-evaluator use cases where positional/streaming structure matters.
+Question/Idea: Since ~clause rules are clearly interpretable, would it be possible to do a kind of (maybe cross-validation-ish) iteration/comparison across N different-random-seed-split train-test sets to identify:
+A. ~clause-rules that either always fire or never fire with any train-test split configuration
+B. to combine/pool ~clause-rule-sets that cover all positive-ID cases across N random-seed-split comparisons.
 
-Two smaller observations to record:
+(and logging which clause-rules were most subject to occurring in rare splits might be useful (vs. common rules that occur in every split).
 
-Bag preset ordering: p2 (leet-fold) ≥ p0 > raw > p1 — the advance predictions held (folds help, no-lowercase hurts at V>0 though its best-F1 recovers via threshold). Worth noting p1's accuracy@V>0 (0.81) vs best-F1 (0.966) gap: the default V>0 boundary is misleading when votes are offset; best-F1 rows are the comparable numbers.
-Harness bug to log: batch mode silently accepted and ignored --model-out. Under the fail-fast philosophy that should either warn or be rejected in batch mode. Small fix, can go in the next drop.
 
-Shall I hold here while you run #1 (and #2/#3 if budget allows), or would you like me to proceed to your item 2 (use-case divergence: flat BOW-TFIDF vs byte-stream-convolution) while those run?
+31. Identifying rows that are never correctly predicted across any random-seed-test-train-split
+- e.g. possibly bad data (very common in large NLP datasets)
+
+
+32. A Clause-Set Level
+Using this example:
 ```
+c0(+) c1(−) c2(+) c3(−) c4(+) c5(−)   V   label  cell
+doc A         x                 x     x           +1    1     TP
+doc B         x     x     x                       +1    0     FP   ← target
+doc C               x     x           x     x      0    0     TN
+doc D         x           x     x                 +1    1     TP
+```
+
+Might it be possible to try conditional rules, where cN clauses need to have other clauses be true or false in order to active? If clause c2 & c4, then c5 must also be observed.
+
+Q: Could a 2nd Granmo-TM model be used as a multi-class classifier to see what clauses are dependent on other clauses to cause/prevent FP (or false-negative? (E.g. using data from across many-random-seed tests...maybe)
+
+33. Data-Examination (MPV-1 Done)
+
+Note: It seems like a 'data-examination' step may be best practice, whereby this or another process repeatedly FN or FP predicted rows are double checked to make sure they are valid data.
+
+On the other hand... there are various ways of possibly screening for outlier rows (with no possible deterministic way to divine mislabeled data): 
+A. Look at which rows are excluded from a conservative positive-prediction-only model (or disco-ensemble)
+
+B. Maybe: Compare across different random seeds how a row behaves both in the training set and in the test-set. Does inclusion in the training set lower the performance of the model: maybe: False-Positive/False-Negative Drop-Out: trying with a few random seeds, if dropping a row has a positive effect (across seeds) then move that row to a 'suspicious' file. 
+1. This could take a lot of time to do, but the process might still be effective.
+2. If they can work using quick-shallow tests, it might only take a few seconds to iterate through tests.
+
+
+34. K-fold Cross-Validation should allow for (easier) clause-pooling
+
+
+35. Structured-Extraction / Structuring-Extraction
+
+Use-case: Finding/extracting the event-name a string (in a time-question).
+
+Common question forms include:
+- When is {even_name}?
+- What time is {even_name}?
+- {even_name} starts at what time?
+
+Because spaces between 'words' are small-quantity-quantized, one strategy may be to compare the various space-delimited-chunks of the input sentence each into a 'front-section-detection' model. E.g.
+
+Note: there will be cases where the target section is at the start or the end of the string.
+Examples:
+1. "{Movie} is when??"
+
+2. "When's the {movie}?"
+
+3. (Example taken from the synthetic training set)
+["At what time does the system maintenance window begin?"]
+
+
+
+Starting with example 3:
+
+Since the boundary will be a space, 
+'Space' delimited inspection-Options are:
+1. [ STRING_START and // + starting edge-case
+2. ["At]
+3. ["At what]
+4. ["At what time] 
+5. ["At what time does]  
+6. ["At what time does the]  
+7. ["At what time does the system]  
+8. ["At what time does the system maintenance]  
+9. ["At what time does the system maintenance window] 
+10. ["At what time does the system maintenance window begin STRING_END] // + end edge-case
+
+(Where either option 4 or option 5 will work)
+
+### Speculation 1: Playing Heads and Tails
+Two models, one to detect 'before-the-inside', and another to detect 'after the side' 
+Various sized chunks (either all, or a window) from the start of the string are fed into the model and each receives a classification (or a set of votes).
+
+In this case, a spike in no-votes would be what we are looking for.
+
+(these are votes, not percentage/probabilities):
+By looking at the overall yes-vote profile, it should look like this (would the no-vote be the opposite?):
+1. 90
+2. 90
+3. 85
+4. 85
+5. 90
+6. 5
+7. 0
+8. 0
+9. 0
+10. 0
+
+(note: there is an edge case for adding a check-spot at the end, but should be possible)
+
+And a similar process may work at the end.
+This is not an end-to-end byte-index output, but it may be just as good for short sentences and a small fast model (and this few could be run in parallel on most systems). 
+
+One idea for that might be a 'bi-directional' approach, where the second tail-detection is literally the same process but run in the reverse direction-from the end. 
+
+
+
+### Speculation 2:
+Another idea is to map standardized 'spaces' to the (bytes of the) words/tokens of the preprocessed-cleaned string (tab, newline, multispace = one space, including the start and the end of the string) 
+
+
+## Single Classification: Inverse of Not-Known-Outside (instead of B-I-O)
+
+Instead of trying to affirmatively define Beginning, Inside, and Outside, (or the boundaries of those (meaning 5+ definitions), let's explore the STEM-elegance of negative-definitions:
+
+What we want is an unknown (and at times forever novel) 'inside', in a context where there is no 'classes' or states matter: We do not care about before, after, begin, starts, stops, boundary, middle, etc.). We are looking for something that is NOT what we know well: the well known 'outside.' We can (try to) classify a very stable and well known 'is-outside' state, and use the inverse of that to show where that is not the case: Inside = Not-Outside. We build a model of the known outside in order to see where that model predicts 0-false (or has a low vote of confidence). 
+
+## 'Outside' detection for "not the known outside" Binary-Classification:
+
+We can set up training data designed to create a dataset with 'Inside-or-Not" classification of each space (with space/tab/newline standardized to 'one space' in preprocessing) (plus a position or space at the start and end): where 'outside' is 'exclusive' of the spaces before and after the target. (e.g. the goal is to identify a window slice that is divided at the target-space as a boundary, as a divided spaces, as a not-outside space. To do this the boundary spaces themselves are defined as 'inside'. e.g. It will happen often that one single word is either the inside or outside portion, so the requirement cannot be to find an boundary space inside and inside that has no spaces -- even if that were possible it would punt the task of identifying where the boundaries are (not where inside points are). The goal is to define boundaries using a 'not-outside' vs. 'is-outside' classification.).
+
+Running this model in one pass iteratively over the input sentence (once for each "space" (+ start + end)) may be the only definition we need to seek the start and end bytes around the 'inside.'
+
+Thought on modeling inside or outside: In real life (new real life data will often not be in the training set), the 'outside' text (not-inside) is what is most predictable. The inside will contain ever-novel content. So if possible "not known-outside" would be a better known-target. 
+
+As an example of this inverse 'known-outside' modeling (where 'outside' is a very stable predictable classification) using the above sentence:
+
+Votes for 'Is Outside' classification:
+1. 90
+2. 90
+3. 90
+4. 90
+5. 85
+6. 5
+7. 3
+8. 1
+9. 2
+10. 90 // edge case added end-check
+
+In this case we look for lower-votes to see where the inside is.
+(re-note: there is an edge case for adding a check-spot at the start and end, but should be possible)
+
+However: How does one ask a TM model about a particular space or point? Are the options
+A. N-bytes/chunks before the space.
+B. N-Bytes/Chunks on both sides (what about start and end positions? ... we could literally append a known nonsense string to the start and end of each string as part of pre-processing or use STRING_START and STRING_END so that there is always something on both sides)
+C. N-Bytes/chunks after the space. 
+
+But doesn't that narrow the model to looking at extremely short sections of text? I might come down to a balance of byte window-size.
+
+Returning to examples:
+1. " STRING_START {Movie} [is] when?? STRING_END "
+
+2. " STRING_START When's [the] {movie}? STRING_END "
+
+3. (Example taken from the synthetic training set)
+[" STRING_START At what time does the system maintenance window begin? STRING_END "]
+
+Perhaps the 'space' inspection idea means to iteratively (from each 'space') grab (in short: the word to either side of that space.
+
+Window slide example:
+1st. STRING_START {Movie}
+2nd. {Movie} [is]
+3rd. [is] when?? 
+4th. when?? STRING_END
+
+This would get four sets of yes-votes and no-votes:
+yes-votes for 'is outside' (not probabilities):
+1. 0
+2. 0
+3. 90
+4. 90
+
+no-votes (not probabilities):
+1. 90
+2. 60
+3. 0
+4. 0
+
+Wherever a boundary-slice is not classified as 'outside' that effectively means that that space is a boundary space.
+
+Edges cases and vote vs. classification:
+1. The easiest approach may be to take the classification the model gives, not the vote. But for planning looking at the vote might suggest more nuanced rule systems if those should be needed (ignoring no/yes votes, setting thresholds manually or on the fly (in the model-predict API, etc.)
+
+2. There will be 'mixed signals' from time to time for whatever reason (FP, FN) Aside from a serious malfunction where it does not recognize the start or end, there should should be at least two boundary points identified as 'not outside'
+
+Possible simple overall rules:
+1. Use model classification not votes to flag boundary spaces.
+2. "Not outside" is a boundary space. (e.g. if 1=outside, then 0 is not-outside; if you defined the reverse, then the opposite is the case) 
+2. If not two boundary points, return empty or error.
+3. If two or more boundary points, take the outer two: return whatever is between the boundary points/"spaces". 
+
+note: for brevity you could use |> and <| instead of STRING_START STRING_END, as those are unlikely to appear in a question about schedules.
+
+Note: This is not an end-to-end byte-index model output, but it may be just as good for short sentences and a small fast model (and this few could be run in parallel on most systems). 
+
+Note: Because this overall system will be for fuzzy matching (e.g. levenshtein) against a separate target database, off by one error (or words such as 'the' which may simply be stripped along with spaces when checking the database) may not be a problem). 
+
+Note: one common sense note about interiors. 
+The outside region will be on the whole stable and known (ways of asking when something is scheduled do not change much over time)
+The inside, on the whole, is full of future unknowns (on the whole). But importantly it also contains very predictable standard things. If your office trains a model for this, much of the 'inside' will be the same things while 'on the whole' it will always contains novel and one-off content as well.
+
+Note: I expect this is a significantly different type of modeling than classification (per se), and am not expecting to use any existing model for this.
+
+Note: Strategies for handling the 'inside' (in training data and training mechanics) vary from making use of frequently repeating event names to using masking/drop-out/random (not-learned) strings, to ignoring "no-votes" (where 'no' means 'not-outside', so no-votes try to learn what is inside) and only count 'yes' votes the recognized outside) or a mix of these approaches. 
+A mix of common event names and random-unique strings may be simplest. Dropout/making might be helpful too. Ignoring no-votes might be good IF there are no commonly repeated event names for a given case (but that is not MPV-1). 
+
+Note: Finite-State-Machine-Layer
+To some extent this is almost a kind of regex around an unknown problem-space. The questions will be highly regular (if in a number of forms)...is there way for TM clauses to be regex-elements? 
+Could it work to have another layer where on top of detecting a given byte/token clause, randomly tried regex operations are tried regarding (and maybe other known clauses), and those regex-operations are voted on as well?
+
+Q: Question: for training data formatting, each row would be a space-straddling span (word{space}word} with the outside=1 not-outside=0 lable?
+
+Note: If full-head or full-tail is in the frame, the classification should always be: this is a boundary.
+
+#### "Do I stutter?" Stuttering-Head-Tail Token/Byte Windows
+A recurring question I keep coming back to is: Can the sweeping window be bigger by 2*N tokens... by using "stuttering" N-head and N-tail tokens?
+E.g. If we start and end with
+class=1 	|> |> When's the film? <| <|; |> |> When's the
+class=1	|> |> When's the film? <| <|; > When's the film?
+class=0 	|> |> When's the film? <| <|; When's the film? <|
+class=0 	|> |> When's the film? <| <|; the film? <| <|
+
+It may be case-by-case to up to results, but having a larger window might help with making context less narrow...
+
+Using N pads (here N=2), the instead of the window being 2-tokens, it may become 2*N tokens. 
+Could we have a larger token window while still having the score/prediction/classification/decision be about the 'focus' token, which is the space that is potentially a boundary-space?
+
+
+To summarize in conclusion:
+The current strategy for extraction notably does not involve any change to the model or base-engine itself per se (though a feature-set-expansion may be material here). Two areas for implementation are 
+1: A less simple process for formatting train/test datasets A. to make a test-row for every potential boundary space in the document, B. maybe with other approaches such as dropouts. (note: this testset making may be python oriented.) And 
+2: A process outside of the model-score engine itself, a wrapper layer that applies the same model N times at each potential boundary-space.
+
+
+36. Boolean-RegeX-Features in Granmo Models: Regular Language Definition, Finite State Machines (FSM), Disjunctive Normal Form (DNF), Abstract Syntax Trees, Feature Scope Reduction, & Genetics Algorithms (GA)
+
+TODO: Check these assumptions:
+1. RegeX engines are FMSs over input strings.
+2. Tsetlin Automata are FSMs over learning feedback.
+3. Granmo-Model learned classifier is a prepositional formula.
+4. Whole-Model can be described as a Regular Language.
+5. That a Granmo Model may be a Regular Language subset of RegeX?
+
+Steps:
+1. sharpening/pruning sections and scope
+2. first MVP steps (e.g. standard-pattern-set), perhaps oriented toward first tests to get data to orient
+3. Any tests that need to be run first?
+4. Specific known-clean and unambiguous datasets (maybe classic ones) to test this on to see if vanilla 2018 Granmo can be meaningfully expanded. (Not datasets like IMDB where erratic human input is randomly designated as Positive or Negative with no Neutral class, etc.
+
+TODO:
+1. Formalized the categories of features (see below)
+2. Double check that at least some extended features can be added into an otherwise classic 2018 Granmo-TM
+3. clarify explanation of why some features cannot or should not be added, which may feed directly into both explanation and design of feature-quatity-scale management strategies (e.g. that will allow searching a larger possible space of feature-types and diversities).
+
+
+Notes:
+1. There is discussion in the original 2018 paper of ~stacks of Tsetlin-Machines (TM) 
+
+(May harken back to project-node for feature-type, feature engineering, and feature discovery expansion (both for standard enlarged set and for Genetic-Algorith discovery process)
+
+(Highly Speculative)
+Gramno-TM as Boolean Regular-Language State Machine:
+Computable Granmo-TM space as Semi-Bounded Regular language?:
+
+Design Questions:
+1. Type: Can or will there be a 'conflict' between any of the new boolean features and the original set of Granmo model boolean features? If not, will the only factor be whether the new features are of any value for a given dataset? 
+2. Quantity: Would feature quantity itself interfere? Should there be a process of first doing a vanilla Granmo model and then adding additional features only if they are found to have predictive value? (e.g. Four possible groupings
+Set 1: Byte-Bag vanilla expressions
+Set 2: Byte-Bag standard extended expressions
+Set 3: specific character patterns
+Set 4: Byte-Bag GA farmed mutation extended expressions
+
+(speculative idea: if they are comparable in the end, could it work to train e.g. four separate models (each set separately), and prune those of dead-clauses, and then combine them (or retrain with all useful multi-set-features)
+step 1. train four separate one-set models
+step 2. prune dead features
+step 3. combine all useful features
+step 4. retrain using validated features (e.g. with parameters adjusted for that feature set)
+
+(alternatively... a discontinuous ensemble of step-1 could be tried...)
+
+Note: one matter of speculation/exploration here is how literally or figuratively 'GA/Genetic Algorithm' is meant. (This is a classic area of CS/DS/ML I have long hoped to revive, but it may be more illustrative here.)
+
+
+Another question may be how formally computability-scope management should be, or can be, defined. It would be interesting if there were formal and practical ways to define the language-space beyond: 'in the workshop you turn the dial until it stops working, then you dial back until it works again'
+E.g. with any 'set number of N-grams' system, I have never heard of a fixed upper bound or the lack of one being a reason not to use n-grams or an invalidation of n-gram descriptions.
+Or maybe the 'definition' would come in the direction of a process-grammar for both standard patterns and pattern-feature-discovery-engineering that would progressively self-maintain a manageable cohort of features (e.g. fixed-size sandbox tests and aggregations of finds...a definable aggregation process?)?. Another aspect of this is distributing (ideally both) the standard-pattern-set test-and-reduce process and the GA-discovery process across multiple 'workstations' (e.g. small (fixed or mobile) devices at a research site).
+
+
+
+## Level 2: Set 4: Byte-Bag GA farmed mutation extended expressions
+
+Genetic Algorithms & Decentralized Voting: Finite-State Machines + Granmo Models (normally "TM"s)
+
+Given that the ~results of regex operations can be (eventually) boolean values: 
+
+If existing and well-demonstrated (2018) Granmo models are (Disjunctive Normal Form (DNF)) FST Boolean-feature learners that use boolean metadata about n-grams (the boolean match for an N-gram), such that Bag-of-Ngrams Gramno TM classifications models could be said to already be an extremely minimal form of boolean-Regex derived metadata feature learning model (with a regular-language?): What other boolean regex-derived corpus/document metadata features could be seamlessly added to expand the reach of the boolean-metadata feature set? (see 'Standard N-Gram Positional Boolean Metadata' below.) What also simple/minimal features are low-hanging fruit, and what more derived but equivalent-type features could be tested? Can we define both the Disjunctive Normal Form (DNF) and the Regular-Language (subset of Regular-expression language space) of Gramno models (Is there a convention way to describe the intersection between a DNF definition and a RL definition to describe a particular feature-space/problem-space?), such that boolean operations and data-byte-based features including AST-governed byte-set boolean-definable-attributes can be defined to better articulate the feature-space of Granmo classification.
+(Note: the primary application of this is NLP boolean classification, but the definition should be more Granmo-model general.)
+
+(UML state machine?)
+deterministic finite automaton (DFA)—also known as deterministic finite acceptor (DFA), deterministic finite-state machine (DFSM), or deterministic finite-state automaton (DFSA) (Warren McCulloch and Walter Pitts) - not trying to expand this slim system into a sub-symbolic NN (... a DFA-neural network?) but interesting history note.
+https://en.wikipedia.org/wiki/Deterministic_finite_automaton
+"DFAs have been generalized to nondeterministic finite automata (NFA) which may have several arrows of the same label starting from a state. Using the powerset construction method, every NFA can be translated to a DFA that recognizes the same language. DFAs, and NFAs as well, recognize exactly the set of regular languages.[Hopcroft, Motwani & Ullman 2006.]"
+
+(Are there features that are not within the regex-sub-space?)
+
+Maybe:
+Trying to define if this is an ensemble approach or a 'native redefinition' approach,
+- 2018 TM framed as DNF learner over booleans
+- clause may be defined as A. an intersection of regular languages
+B. Granmo regular language 
+- class vote defined as A. threshold over unions of compliments and intersections B. maybe unchanged if what expanded was a single language definition (something describing a more singular definition)
+
+
+Another aspect may be how similar or different the expanded standard pattern set is from the feature-derivation/~GA process, e.g. could a 2nd Granmo-TM (by the same rules) act to vote on the successful AST-based feature mutations?
+(If so, how is this self-reflexive language described? - seems sort of dynamic-ish by also still deterministic? (pseudo-dynamic?))
+
+From claude opus, needs examination:
+(```## 1. Theoretical anchor (drives every design constraint)
+
+Regular languages are closed under **union, intersection, and complement**. Therefore:
+
+> If every feature is a regular predicate over the input, then the *entire* learned model — features, clause conjunctions, negations, weighted vote, and threshold `T` — is itself a **single regular language**, computable by the product DFA whose accept set is `{states : Σ w_j·C_j ≥ 0}`.```)
+
+
+Note/Question: For quadratic Positional feature: how about this as a default setting: to Document Frequency DF of n-grams, take top 25%, use those for positional feature: then it is linear not quadradic, no?
+
+Can we define the subset of regex in which TM-models normally live? e.g. 
+- linear-time matching (as in Big-O accounting),
+- decidable equivalence (decidability/definability is of value (including for audit/verification/testing/reproducibility), 
+- minimal-DFA canonical hashing (hash verifiable same lexicon), 
+- structural dead-clause detection (requiring that clauses can be satisfied in principle)
+
+No:
+- no ReDoS (guarded by AST source of potential new variants/mutations)
+- no backreferences (e.g. to make character pattern repetition regular)
+- no unbounded counters (no unbounded repetition of multi-char chunk; no unbounded int result;)
+
+
+if 
+clause = an intersection of regular languages, 
+negated literals = complement, 
+class vote threshold = accept-set over the product automaton 
+is the learned model then a regular language?
+
+Can adding regex to BOW/BONgrams TM classification a less extremely minimal version of the same traditional model, rather than adding anything 'new' to the architecture? 
+
+
+Note:
+Perhaps case by case, as this may be used for highly varied real life cases:
+1. genomics
+2. ascii NLP
+3. unicode multi-language NLP
+4. small doc
+5. large doc
+6. IoT data analysis
+7. symbol is signal NLP
+8. symbol is noise NLP
+etc.
+
+It is likely infeasible to prescribe a set of boundaries that are practical for all use-cases, but with human-language-NLP, probably various 'possible but expensive' operations will not end up being useful most of the time. It is also possible that none of this will be useful any of the time! But there may be something worth trying.
+
+E.g. All-Positional pairs are quadratic, but 'All' might not be needed:
+A. They might not be needed at all
+B. Not all positions needed: It could be that one or some of the four end up be much more common (so the others are less important to check).
+C. Any might be an indicator that others are or are not useful, such that you can prob-check quickly with one. (Or something similar in scenario where you are running multiple tests anyway, perhaps check one positional feature at a time (and none of them). 
+D. Not all N-grams: This is something that maybe-could-be checked empirically: you might not need to do positional-feature checking on the entire lexicon (most of the time). E.g. In a normal distribution of n-gram frequencies if 1.5IRQ (or just simpler 1IQR) is fast and effective ~most of the time, that might cut down on the cost. (or, conversely, maybe the tails end up being more important, so just check those, etc.) (or, maybe high and low frequency are better to pair (vs. high and high or low and low))
+
+
+Note: It could be (very speculative) a feature that could (in some cases) (potentially) boost extra-small models with deliberately small lexicons: E.g. N-gram size 2*4 is a lot smaller than N-grams sized 8. 
+
+Maybe if the model is size-limited (embedded device, etc.) and N-gram-len=2 + positions is a compromise within the size constraints compared with Ngram-len=3 or 4+. If useless features and clauses can be pruned, then even though it will take longer to find GA regex that help a small model, once they are found it might help to keep the lexicon and model small. (e.g. squeezing as much as you can out of n-gram-len=2 (or 1!).
+
+Or in some cases maybe time or size isn't an issue and the only thing that matters is performance + Granmo-explainability... using a rack of Nvidia H100s will probably make most of the bloat less of an issue compared with a quadrillion parameter foundation model.
+
+
+In terms of problem-space, I am not entirely sure that the scope management of these Part-1 (fixed standard regular language extensions) or part-2 (GA (AST genetic algo)) is definitionally different compared with the parameters of a normal GM-TM: If the parameters are too loose the result is big and slow. Come to think of it, that's what Prof. Skip Ellis tried to teach us about all computer science problem spaces; theoretical solutions and viable solutions are not identical: finding viable solutions is not trivial.
+
+That said: THere should be general rules of thumb, guard rails, and tricks that will work. (again... assuming any of this has any value, which is a stretch).
+
+Note:
+for practicality it might useful to ~define
+A. in theory a GM-TM is a regular language in terms of ability
+B. in practicality a subset of regular language can be optimal
+This might be why a safe starting point is the most minimal boolean-count-metadata (BOW-TM) (perhaps like the safe starting most minimal TM automata), 
+A. most minimal is a (beautiful) kludge, not a definition of the problem/engine space
+B. other features are both within the space and practical
+C. more clearly defining the space will help to define the range of practical options
+
+
+Idea: Defining a Semi-bounded Regular Language? 
+(related to scope-scale and big-o(& NP-completeness...Turing Oracles?))
+
+
+
+
+
+
+
+
+
+Groups of Features:
+1. Meta-data Features Included in 2018-Granmo TM
+1. A: boolean presence "literal"
+2. Not A: boolean absence
+3. ?A: exclusion of presence "literal"
+4. A|B: quasi-OR (voted sum)
+5. Groups (non-capturing) (clause is a group)
+6. + (≥1) (same as 1, presence?)
+
+quasi included:
+1. A ∧ B : Lookarounds
+
+2. Standard extended Granmo Language n-gram Meta-data Features
+(?) - saturating counters (>=k)
+(?) - bounded quantifiers
+(?) - bounded lookaround
+- repetition as boolean (repeats/does not repeat; &/or repeats more then N times (e.g. hate speech repetition))
+- anchors (^, $, \b, \B to ask position question as boolean features (e.g. ^http, !$, ^\d{3}-\d{4}$, \b{n-gram}\b)
+1. (A|B) ∧ C: OR — within a clause/conjunction 
+2. AB: Concatenation / adjacency (edge case: might be effectively inside an n-gram, but not for two n-grams A, B)
+3. {n,m}: bounded repetition of a chunk
+4. ^ $: Anchors
+5. \d \w [a-z]: Character classes (shape/class n-grams (e.g. Aa9, \d{4}))
+
+
+
+
+
+3. Standard extended Granmo Language Whole Doc Meta-data Features
+- length data
+- symbol metadata
+- 
+
+4. Standard extended Granmo Language Common-Pattern Meta-data Features
+- escapes & predefined classes: Digit, word-char, whitespace, negated
+
+5. Advanced extended Granmo Language n-gram Meta-data Features
+	- N-position
+6. AST-Pattern Primitives for Recombinant Feature Derivation (e.g. GA)
+
+
+Excluded in this scope:
+- *: unbounded
+- Capture groups (?)
+- Backreferences
+
+
+
+Whole-document metadata: (maybe or maybe not used/compatible)
+- length buckets
+- capitalization
+- punctuation
+- standard format detection: datetime, 24hour time
+- character repetition (e.g. repeated punctuation in toxic/radical text)
+- compression-ratio
+- line-count
+- Shannon Entropy (not MVP)
+- character/byte distribution and transition boolean metadata (very speculative)
+- per-line and line-comparison meta-data (e.g. for larger docs; apply all the above to lines of the doc (e.g. length of lines, capitalization of lines, etc.) (not MVP)
+
+
+
+(recap-question) Is there a way for Granmo model clauses to be associated with regex components/elements?
+
+- literals
+- metacharacters
+- character-classes
+- quantifiers
+- repetition as boolean (repeats/does not repeat; &/or repeats more then N times (e.g. hate speech repetition))
+- anchors (^, $, \b, \B to ask position question as boolean features (e.g. ^http, !$, ^\d{3}-\d{4}$, \b{n-gram}\b)
+(?) - saturating counters (>=k)
+(?) - bounded quantifiers
+(?) - bounded lookaround
+- groups and alternation: groups, capture groups, non-capture groups, alternation (logical OR matches A|B; Flag: this may be useful!)
+- alternation
+- escapes & predefined classes: Digit, word-char, whitespace, negated
+- Lookarounds (Zero-Width Assertions): positive/negative lookahead/lookbehind(?)
+(- linear-time-matching rule)
+
+
+E.g. As a way to bridge part-analysis and analysis-parts with the effects on the entire document (which should include or be shaped by:
+1. interaction between parts of analysis
+2. properties of the whole document that are not found in isolated parts
+3. (stretch-goal scope) potentially the ability for a decentralized modeling process to happen in a more decentralized way (e.g. not just abstract automata all in the ram of one device, but N devices in a network (e.g. measurement devices spread out over a field-research site).
+
+TODO: elaborate on and define 'Anchors'
+
+
+Standardized Parts: State-Machine Boolean Meta-Data
+
+We are going to focus here on byte/token-n-gram boolean language type features (perhaps boolean described language meta-data), but at some point we should at least ask if there is a larger set of boolean-definable patterns that can be used. While n-grams are a time-tested useful set of patterns, what other problem-space-subspaces are there? (Starting with normal BOW)
+
+1. Presence: (frequency not zero) Bag (BOW, BO-Ngrams, Byte-Bag, etc.)
+2. Sequence & Convolution Patterns
+3. RegeX Meta-Data (can include boolean sequence)
+4. frequency (DF, TF, TF-IDF) e.g. Frequency above/below N: boolean
+
+Note: What may be part of the point of this larger question, in RegeX we can see features that do not belong here (helping us to define what is inside): 
+- start, unbounded definitions
+- backreference operations
+As a future-scope question, could we similarly define elements of convolution, and other types of patterns, that do and do not fit?
+
+(In theory, an ensemble model could use (for example non-false-positive) versions of all these types of patterns to try to better identify classes/class-labels?)
+
+
+Checking: Both Granmo Models and Regex are Finite state machines, yes?
+
+Modular RegeX (or Finite State Machine) Meta-Data:
+For example, let's say we have two NLP classes. 
+- A given regex search can return results that can be meta-data described either as binary 1/0 (something/nothing) or by int quantity, where a simple threshold may be drawn e.g. describing an intermediate between the median results of each class.
+
+Metadata Features more generally:
+boolean BOW uses one type of boolean 'document/term metadata', what else (if anything else) might fit in this document-term metadata-feature regular language and Disjunctive Normal Form (DNF)?
+
+- Standard Patterns & Discovered Patterns
+A variety of perhaps 'standard metadata' items (such as standard regex-filters for phone number matches, email matches, date-format, html-tags, time in 24-hour format, positions, etc.) can be checked along with genetic-algorithm style varied randomly tried binary or quantity regex queries (or perhaps the quantity based results could be automatically interpreted as binary given a threshold, so that all meta-data fields are binary.
+Given a proverbial (or literal) table of meta-data X fields for each class, the Granmo-model system may be able to vote on class-identification relevance in a similar way to how BOW 'features' are voted on.
+
+
+A. N-gram vs. Other
+In a sense the RegeX idea here is a diversification of an existing singular mode: Gramno-TM is already good at using frequency based boolean metadata about n-grams. We can ask at least expansion questions:
+1. Can we use other simple standard boolean metadata about the document?
+2. Can we derive other boolean meta-data using N-grams (e.g. by making regex queries using those N-grams)?
+E.g. if a regex pattern returns either something or nothing, that is already boolean. If the regex query returns a list, then that list containing more that Threshold T can be the binary filter, e.g. More than 0, or more than N (where various values of N can be tested for usefulness in comparing classes).
+
+
+Standard N-Gram Positional Boolean Metadata:
+For each pair of n-grams (A & B), there are two positional-metadata boolean values: (Any A found before Any B) and (Any B found before Any A)
+
+- N-gram positional metadata: Does one n-gram occur before another? (boolean)
+
+
+
+# 'standard metadata' items
+( brainstorming notes )
+- vowel patterns
+- consonant patterns
+- symbol patterns (could be a simple as a class with vs. without)
+- capitalization patterns
+- punctuation patterns
+- text length patterns
+- repeated character patterns (e.g. repeated symbols in hate-speech)
+
+vs.
+# making new regex based on n-gram table:
+- Frequency may be the most useful meta-data signal about an n-gram
+- n-gram 1 | n-gram N
+
+
+
+Architecture/Integration:
+Could it work to have another layer where on top of detecting a given byte/token clause, randomly tried regex operations are tried regarding (and maybe other known clauses), and those regex-operations are voted on as well?
+
+Q: negative-feature metadata? 
+e.g. not-A and not-B
+negative DNF-RegeX might not be practical for common Grep type uses of RegeX, but they may help mature the definition and feature space of Granmo-"language" for model uses beyond NLP.
+
+Sample Walkthrough 1:
+With or without other types of features (e.g. Bag or N-gram frequencies)
+
+#### Step 1: Feature Engineering
+1.1 (MVP-1) Produce a table of boolean-results for a standard set of regex ~queries
+
+#### Step 2. (MPV-1) Run Granmo-TM on the boolean features the same way that it would work for Bag-of-N-grams boolean features.
+
+
+#### Sample Walkthrough 2:
+With or without other types of features (e.g. Bag or N-gram frequencies)
+
+Part 1: Feature Engineering
+1.1 (MVP-1) Produce a table of boolean-results for a standard set of regex ~queries
+1.2 (optional) Randomly generate other regex boolean features from AST (abstract syntax tree of approved pre-structured options, see below)
+option A. a one time process (there would be many useless clauses at the start)
+option B. looped process to find the most useful queries while using a manageable set of clauses at a time.
+1.3 Log useful queries found, to maybe add to the standard set to always try
+
+Part 2. (MPV-1) Run Granmo-TM on the boolean features the same way that it would work for Bag-of-N-grams boolean features.
+
+
+(Note: a genetic-algorithm farm for regex-queries require some kind of grammar generation framework 
+- AST grammar framework for generation?
+
+
+### Attempting a Language-Type Definition for GM-TM classification model features, such that a 2018 Granmo-Model is a subset of a (possibly) well defined Granmo-Regular-Language, some of which (as is also the case for 2018 type) may under some configurations be larger than practical computation suites. 
+
+We will try to define a Granmo-Regular-Language as a subset of standard RegeX Regular language space. (I think.) Based on this, we can define an Abstract Syntax Tree (AST) with which feature-mutation/permutation within that defined regular language can be tested (and selected if testing positive). 
+
+The applied goal is to find a larger, native, practical set of features that Granmo models can use for enhanced effectiveness in classification models. 
+
+An abstract goal may be to more accurately map the feature-space, feature-engineering-space and problem space-space of a 2018 Granmo model in the context of language spaces. In theory this could help with other extensions as since 2018 people have been pushing for many other variants and applications of Granmo's Automata T-Machines (sometimes aimed at emulating features or use-cases of deep learning or other models). 
+
+
+
+
+
+Provisional map of what is or is not in vanilla GM-TM:
+
+Is Included:
+1. A: boolean presence "literal"
+2. Not A: boolean absence
+3. ?A: exclusion of presence "literal"
+4. A|B: quasi-OR (voted sum)
+5. Groups (non-capturing) (clause is a group)
+6. + (≥1) (same as 1, presence?)
+
+quasi included:
+1. A ∧ B : Lookarounds
+
+Not Included:
+1. (A|B) ∧ C: OR — within a clause/conjunction 
+2. AB: Concatenation / adjacency (edge case: might be effectively inside an n-gram, but not for two n-grams A, B)
+3. {n,m}: bounded repetition of a chunk
+4. ^ $: Anchors
+anchors (^, $, \b, \B to ask position question as boolean features (e.g. ^http, !$, ^\d{3}-\d{4}$, \b{n-gram}\b)
+5. \d \w [a-z]: Character classes (shape/class n-grams (e.g. Aa9, \d{4}))
+
+
+Excluded in this scope:
+- *: unbounded
+- Capture groups (?)
+- Backreferences
+
+
+Note: While NLP is a significant use-case, I want to highlight the general-pattern (e.g. byte-pattern) level features that may apply to data other than ascii-nlp. (which includes non-ascii (full unicode) character sets (e.g. asian))
+
+
+
+Idea:
+There are various batch-variation and outlier-row testing features, some of those may be useful for this exploration of what may or may not be useful or disruptive.
+
+Design question that might go back to feature-set size:
+since this is byte-bag not a word-bag model, can or should there be ways to 
+1. select raw-byte or space-delimited 'word' byte-sets, or both
+2. remove un-useful items from the feature-set so that it is not overly large
+3. possibly a DF(document frequency of token) type process not for getting word/byte-set probability data to model, but for selecting the most commonly shared set of byte-sets to start with, this could make the feature set arbitrarily small (Top-N DF: top 5, 10, 25 etc. not everything)
+(todo: check how byte-bag works (e.g. same as space-delimited n-gram?))
+
+Note: (Not MVP) if there could be a way to pre-screen or otherwise manage the feature-space, having N-Item Positional pairs (A before B & C) or (A before B before C) might be useful (boolean) features to have, if there is a way to narrow the feature-space (DF?)
+
+Note: There is some overlap here too with (somewhat) reinforcement learning / self-evaluation elements in various ways:
+1. iterative feature-quantity management
+2. GA-type feature discovery process (feature-learning, then learning with features)
+3. 
+4. distributed learning process: carried out (if once) by a swarm in a process on the fly
+5. ongoing re-training and performance maintenance
+
+Q: Question, the answer is probably 'no' but for the sake of thoroughness are there changes at the level of automata properties/variations that may be relevant to this scope?
+
+
+## Krummholz Decision Trees 
+(From biology, a Krumholz Tree is a tree structure that grows horizontally, as where above treeline conditions are too adverse to survive growing up.)
+
+A further question here is whether either level 1 or level 2 (of extending feature types in Granmo Models) may represent a kind of 'flat-decision-tree' type model, where the feature space is in some ways a branching set of conditions, but restricted such that it is expressible in a linear bitwise DFSNMT?PDQBach flat feature set with better audit and explainability and understandability properties than a dense decision tree.
+
+
+Q: Question is it known or unknown what features may be effectively modeled through conventional layers and sets of Granmo-TMs? Do features that emerge from layers of conventional-GramnoTMs definitely, maybe, or definitely not, include various 'extended features' either targets or relationships?
+
+Q: What are the pros and cons of using DF (doc frequency) and ~'univariate screening' mutual information or chi-square (for candidate feature and class label) as a screen before assembling features to start Granmo TM model training?
+E.g. Is it not possible to set a low threshold cut-off because even a tiny minority representation might contribute to one of many edge-case learned-patterns?
+Or could pre-screening be used only in cases of feature-explosion or ~quandratic growth? (two position positions or N-positions?) (other relationships that could possibly be useful as N not pair?)
+
+(or possibly in the case of longer n-gram length, such that all or >2 would befiltered, perhaps more agressively, so that e.g. the top 10 DF only (or some comparably small number) would be included.
+
+
+
+
+37. Larger Structured-Extraction Process
+
+Step 1: Detect Language (e.g. main eu languages)
+- multi-class model?s
+Step 2: Question-type classification
+Step 3: Run model to extract item: Structured-Extraction (based on question-type)
+Step 4: Levenshtein distance match to list of event names.
+Step 5: Structured-Format 1
+Step 7: Form-fill structured format to language to confirm question
+Step 8: 
+
+For 'structuring' unstructured text into specific structured fields:
+
+A structured-extraction set of tools (I am guessing multiple models, not one), e.g. to extract a time-of-day or phone number, 1. a model to get starting byte, 2. a model to get ending byte 3. a simple extraction from-to bytes. 
+
+mvp-1: not dealing with edge case expressions (quarter after, half past, half six, etc.)
+
+'What's at 8?'
+'When is {event}?
+
+day of the week
+
+day of month
+
+month
+
+month-day
+
+
+38. Implicit vs. Explicit Ensemble
+What kinds of features can be used in the same 'model' in various ways?
+1. same flat pool of clauses and votes
+2. parallel models with modified false-positive
+3. other: stages?
+
+
+N. convolutional levenshtein functions?
+/////////////////////////////////////////////////////////////////////
+
+TODO:
+
+notes:
+1. bow 'flat' works
+2. windows do not help, at least so far
+3. clustering does not help, at least so far
+4. Byte-Convolution-Streaming works
+
 
 Side Task:
 - If abstract or speculative, I want to try to list out where use-cases might exist and diverge between 
@@ -1287,1378 +1459,8 @@ E.g. a the byte-stream-series might a flexible for more use-cases:
 E.g. another interest area is No-GPS direction-change detection from continual input stream, very low-power computation:
 - could a byte-stream convolution model try to operate on (some derivative of video or sensor input?)
 
-
-Not to distract from scope, but here are the overall notes for the larger set of Granmo model test modules, including clustering, 'flat'BOW-tfidf, windowed-bow, and now byte-convolusion-stream-diverse-team-games
-```
-
-
-[Hand off Doc 1 written (mostly) by Claude]
-```
-## 1. Project Goal and Scope
-
-Build and evaluate a **byte-level convolutional Tsetlin Machine** for **binary classification of short social-media text (hate/bullying detection)**, producing a probability output, with these hard constraints:
-
-- **Production profile:** integer-only hot paths (no floats in training inner loop or inference), small deployable artifact (target: tens of KB), single-pass streaming-capable inference.
-- **Explainability:** fired clauses decode to human-readable byte patterns with exact source-span offsets.
-- **Scientific discipline:** every architectural change is benchmarked against retained baselines on identical splits with fixed seeds.
-
-**Out of scope for this phase:** multi-class, generative anything, GPU, Platt calibration, bit-parallel/SIMD optimization, UTF-8 boundary alignment, multi-granular patch sizes.
-
----
-
-## 2. Status: Existing Code Inventory and Assessment
-
-Phase 1 code (`main.rs`, single crate, deps: serde/serde_json/csv/rayon) provides:
-
-| Component | Status | Phase 2 role |
-|---|---|---|
-| `PipelineError` | Good | Reuse as-is; add variants only if needed |
-| `FastRng` (xorshift64) | Good, deterministic | Reuse; **add integer-threshold draw methods** (see §6) — `gen_f64` stays only for legacy models |
-| `Dataset` (CSV/JSONL, label alignment, seeded split) | Good | Reuse as-is |
-| `Vocabulary` (word-level) | Good | Reuse for word baselines; **add byte-n-gram view** for M-ByteBag |
-| `VanillaTM` (flat BOW) | Working, best current accuracy | **Ablation control — do not modify** |
-| `WindowedTM` (word-level conv) | Working, underperforms flat | **Ablation control — do not modify** |
-| `EvaluationReport` | Good | Reuse; add per-class + margin-sweep output later if needed |
-| `PipelineModel` / `ClassifierModel` enum | Good pattern | **Add `Byte(ByteConvTM)` variant**; JSON artifact fine for experiments |
-| Explainability (`FiredRule`, positional traces) | Good pattern | Extend for byte spans |
-| CLI (fail-fast parsing, train/predict modes, demo) | Good | Extend with preprocessing + byte-model flags |
-| Tests (invariant validation, learning tests, round-trip) | Good pattern | Replicate style for new engine |
-
-**Key finding from code inspection (this resolves former diagnostic milestone M-Diag):** `WindowedTM` **is** correctly weight-shared across document positions — one clause with `(relative_slot, word_id)` literals is slid over all window starts, with single-sampled-window Type Ia/II feedback. The convolution mechanics are already right. Its structural weakness is the **literal space per clause: `2 × W × V` (e.g., 24,000 literals at V=4000, W=3)** — each window slot carries a full one-hot vocabulary, so exactly one of ~4000 positive literals is true per slot, Type Ia/II feedback costs O(W×V) per event, and clause convergence is starved. **The byte model keeps the (correct) convolution mechanics and shrinks the per-slot alphabet from V≈4000 to 256**, giving `2 × K × 256 = 2,560` literals at K=5 — roughly 10× smaller, with no OOV concept at all. This is the central hypothesis of Phase 2.
-
----
-
-## 3. Established Technical Facts (verified against primary sources)
-
-These were double-checked against Granmo et al., *The Convolutional Tsetlin Machine* (arXiv:1905.09688) and Granmo et al., *The Tsetlin Machine Goes Deep: Logical Learning and Reasoning With Graphs* (arXiv:2507.14874). Treat as settled:
-
-1. **OR-pooling is canonical.** A clause's document-level output is 1 iff it matches at least one window. GraphTM independently confirms (graph output = OR over nodes). OR-pooling is also length-invariant — important because document length varies, unlike images. The Phase 1 `CountFire` (capped sum) pooling remains available as an ablation only.
-2. **Feedback when clause fired (Type Ia reinforce / Type II suppress): sample ONE fired window uniformly** and apply literal updates against it. Phase 1 already implements this correctly.
-3. **Feedback when clause did not fire (Type I, clause=0 branch) is input-independent**: uniform push toward exclusion with probability 1/s. **No window selection is needed or meaningful.** Phase 1's `apply_type_ib_feedback` already does this correctly.
-4. **Convolutional TM = GraphTM with disconnected nodes, depth 1** (verified empirically in the GraphTM paper). Our byte-conv model is the base case of that ladder; depth-2 message passing is a defined escalation path (backlog, §12).
-5. **Coalesced TM weighted clauses** (integer per-class clause weights, ±1 updates) achieve comparable accuracy with fewer clauses and remain integer-only. Cheap orthogonal upgrade — ablation backlog.
-6. **Length neutrality of the chosen design:** with OR-pooling, each clause contributes at most 1 vote and at most one feedback event per document regardless of length; length affects only scan cost and spurious-match odds. A configurable `max_scan_bytes` cap must exist.
-
----
-
-## 4. Model Specification of Record: `ByteConvTM`
-
-**Input:** preprocessed byte sequence (§5). Windows of **K bytes (default 5)**, **stride S (default 2; S=1 configurable)**, slid over the document. Documents shorter than K are right-padded with **0x00** (decided; never occurs in normal text). One-hot-256 encoding is *implicit*: the byte value is the literal index; no expanded vectors are materialized.
-
-**Clause structure:**
-- One clause = K positions × 512 automata: positive literal `(k, b)` = "byte at window offset k equals b"; negated literal `(k, b)` = "byte at offset k is not b". Literal layout mirrors Phase 1: positive at `k*256 + b`, negated at `K*256 + k*256 + b`. States are i16, include iff state > `states_per_action`.
-- One shared clause slid over all window positions (as in Phase 1).
-
-**Derived evaluation structure (design commitment, not an optimization afterthought):** per clause, per offset k, a 256-bit **allowed-bytes mask** (`[u64; 4]`): bit b set iff byte b passes both the positive and negated constraints at offset k (positive-include of b' ≠ b ⇒ b disallowed; negated-include of b ⇒ b disallowed). Clause matches a window iff all K observed bytes are allowed — **K bit-tests per clause per window, zero floats**. Masks are recomputed only when an automaton crosses the include/exclude boundary (route all state changes through increment/decrement methods, exactly as Phase 1 does with `included_positive_counts`; re-validate on model load, same pattern as `validate_internal_consistency`).
-
-**Bank and vote (binary task — simpler than Phase 1's per-class banks):** single pool of `n_clauses` (default 200), even indices positive polarity (class 1), odd negative (class 0). `V = Σ fired(+) − Σ fired(−)`; label = `V > decision_threshold` (default 0, sweepable). Training uses standard clamp to ±T (default 50) and the `(T∓V)/2T` update probabilities — implemented with integer comparisons (§6).
-
-**Forward pass modes:** `predict` may early-exit per clause on first match; `train` needs one uniformly sampled fired window — implement via reservoir sampling in a single pass (count matches, keep current sample with probability 1/count) so no `Vec<usize>` of fired positions is allocated per clause per step (improvement over Phase 1's `fired: Vec<usize>`).
-
-**Feedback:** identical logic to Phase 1's `WindowedTM` (correct per §3), but per-event cost drops from O(W×V) to O(K×256) = 2,560 literal visits — cheap.
-
-**Footprint (K=5, 200 clauses):** training state ≈ 1.0 MB (i16); masks ≈ 32 KB. **Inference-only artifact = masks + polarities (+ optional weights + probability LUT + preprocessing config header) ≈ tens of KB — an explicit deliverable.**
-
-**Config surface (extends `BenchmarkConfig`):** `patch_size` (K), `stride`, `n_clauses`, `threshold` (T), `specificity` (s), `states_per_action`, `pooling` (OR default; capped-count as ablation), `max_scan_bytes`, `seed`, `epochs`, plus the preprocessing profile (§5). All resolved config values are persisted in the model artifact and echoed at train time.
-
----
-
-## 5. Preprocessing Specification
-
-**Principles:** (1) every stage is a byte-stream adapter — bytes in, bytes out, O(1)/bounded state, so the pipeline works on streamed input; (2) the enabled-stage list is configuration selected at train time and **persisted inside the model artifact** — inference must replay it exactly (non-negotiable rule); (3) non-ASCII bytes pass through untouched by default (emoji/other scripts are opaque but consistent byte patterns).
-
-**Stage catalogue, canonical order:**
-
-| # | Stage | Transform | State | Default |
-|---|---|---|---|---|
-| 1 | Whitespace fold | `\n \r \t` → space | none | ON |
-| 2 | Space dedupe | collapse space runs | 1 byte | ON |
-| 3 | Leading trim | drop leading spaces | 1 bit | ON |
-| 4 | ASCII lowercase | bytes 65–90 → +32 | none | ON (A/B tested) |
-| 5 | Leet fold | `@→a $→s 0→o 1→l 3→e !→i` (configurable map) | none | OFF, top-priority experiment |
-| 6 | Digit strip | remove 0x30–0x39 | none | OFF, experiment |
-| 7 | Symbol strip | remove ASCII punctuation (space excluded) | none | OFF, experiment |
-| 8 | Space strip | remove all spaces | none | OFF, expected harmful (word boundaries are signal: "\_ass\_" vs "class") |
-| 9 | Porter stemmer | word-level suffix strip | bounded word buffer | OFF, late ablation; dependency decision open (§11) |
-
-**Predictions recorded in advance:** folds (lowercase, leet) merge obfuscated and plain spellings — expected wins; strips delete potential signal (digits are leetspeak carriers) — expected neutral-to-harmful; stemming partially redundant with byte windows and unstable on typo-heavy text.
-
-**Experiment presets (each one training run):** `raw` (no stages — streamed-production case, always reported); **P0** = stages 1–4 (baseline); **P1** = P0 minus lowercase (capitalization A/B — ALL-CAPS is genuine signal in bullying detection); **P2** = P0 + leet-fold; **P3** = P2 + symbol strip; **P4** = P0 + digit strip; **P5** = P0 + space strip; **P6** = P0 + stemmer. Priority order: P0, P1, P2 first.
-
-**Deferred idea (recorded, not MVP):** lowercase + inject sentinel byte 0x01 before originally-ALL-CAPS words — normalizes patterns while keeping "shouting" learnable.
-
----
-
-## 6. Compute Policy: Integer-Only Hot Paths
-
-Hard rule for `ByteConvTM` (existing `VanillaTM`/`WindowedTM` are exempt as frozen baselines):
-
-- Clause evaluation: bit-tests on `[u64;4]` masks only.
-- Feedback selection `(T ∓ V)/2T`: draw integer `r ∈ [0, 2T)`, compare `r < T − V` (or `T + V`). Exact, no division at runtime.
-- Specificity `1/s`, `(s−1)/s`: precompute `u16` thresholds (≈ `65536/s`) at config time; per-decision compare one random `u16`. `s` remains a float in config files only. **Add to `FastRng`:** `next_u16()`-style draw and a `gen_range` that avoids modulo bias if desired (or document acceptance of modulo bias — decide under coding rules).
-- Probability output: `V ∈ [−n_clauses/2, +n_clauses/2]` → precomputed lookup table (sigmoid with τ = T/2, fixed-point u16), filled once at model-save time. Runtime probability = one array index.
-- Floats permitted only in offline evaluation/reporting (`EvaluationReport` etc.).
-
----
-
-## 7. Outputs Beyond the Label
-
-1. **Probability:** LUT sigmoid over V (§6). Calibration refinement (Platt) deferred; would only change how the LUT is filled.
-2. **Embedding (free byproduct — deliverable):** the fired-clause bitset (~200 bits, already computed for voting) is a learned, interpretable binary document embedding; expose it in `PredictionOutput` (e.g., as a compact hex string or bit vector) for similarity/clustering/near-duplicate use via Hamming distance.
-3. **Explainability:** per fired clause — decoded pattern ("offset 0 must be `i`, offset 1 must be `d`, offset 4 must not be space") + matched byte-span offsets in the source text. Same `FiredRule` structure, byte-span variant. Build this *during* engine development — it is the primary debugging instrument.
-
----
-
-## 8. Evaluation Plan and Success Criteria
-
-**Dataset (decided):** short social-media hate/bullying text, binary label. Expect class imbalance → report precision/recall/macro-F1 and sweep the integer decision threshold (free: boundary is `V > c`). Reuse `EvaluationReport`.
-
-**Robustness suites (build once, freeze):**
-1. **Obfuscation suite:** held-out positives rewritten with leet substitutions, inserted symbols, casing tricks — measures the byte model's core claimed advantage.
-2. **Word-boundary/negation suite:** minimal pairs where local order or boundaries flip the label (Phase 1's negation demo is the seed for this).
-
-**Comparison matrix (identical splits/seeds):** flat word-BOW (`VanillaTM`) · word-window (`WindowedTM`) · **flat bag-of-byte-n-grams** (tokenizer swap on `VanillaTM` — isolates "does sub-word granularity alone help" from "does convolution add anything") · **`ByteConvTM`**, across preprocessing presets.
-
-**Success criteria (fixed now):** (a) no macro-F1 regression vs. flat word-BOW; (b) clear win on the obfuscation suite; (c) inference artifact meets §4/§6 production profile. Win on (b) with parity on (a) = success. If `ByteConvTM` only matches the flat byte-n-gram baseline everywhere, the convolution machinery is not earning its complexity — that is itself a valid finding.
-
----
-
-## 9. Milestones
-
-1. **M-ByteBag** — Byte-n-gram tokenizer view on `Vocabulary` (fixed-length shingles over preprocessed bytes) feeding the unchanged `VanillaTM`. Fastest-training vehicle; run P0/P1/P2 preprocessing experiments here first. *Gate: does sub-word granularity alone move accuracy / obfuscation robustness?*
-2. **M-Preprocess** — Byte-stream adapter pipeline (stages 1–8; stemmer stubbed pending §11 decision), preset selection via CLI, config persisted in artifact. Prerequisite for everything; shared by all models.
-3. **M-Conv-Core** — `ByteConvTM` per §4 + §6: masks, reservoir-sampled feedback, integer RNG paths, `ClassifierModel::Byte` variant, invariant re-validation on load, unit tests replicating Phase 1's test style (order-sensitivity, PAD semantics, invariant-after-training, save/load round-trip, learning test on a byte-level negation micro-corpus).
-4. **M-Explain** — byte-span `FiredRule` decoding + embedding bitset in `PredictionOutput`. Built alongside M-Conv-Core, not after.
-5. **M-Prob** — probability LUT + threshold sweep reporting.
-6. **M-Ablate** — full comparison matrix (§8) incl. pooling ablation (OR vs. capped-count) and stride 1 vs. 2.
-7. **M-Prod-Pass** — compact inference artifact (masks + polarities + LUT + preprocessing header; drop TA states), streaming inference path verification, size/throughput measurement.
-
----
-
-## 10. Locked Decisions Log
-
-| # | Decision | Value |
-|---|---|---|
-| 1 | Task | Binary hate/bullying classification, short social-media text, probability output |
-| 2 | Pooling default | OR (any-fire); capped-count kept as ablation only |
-| 3 | Feedback | Single-sampled fired window for Ia/II; input-independent 1/s decay for clause=0 (Phase 1 semantics preserved) |
-| 4 | PAD | 0x00, right-pad when doc < K |
-| 5 | Alphabet | Implicit one-hot 256; non-ASCII passes through untouched |
-| 6 | Lowercase | ON by default (ASCII-only fold); P1 A/B tests OFF |
-| 7 | Hot-path arithmetic | Integer-only for the new engine (§6) |
-| 8 | Baselines | `VanillaTM` and `WindowedTM` frozen as ablation controls |
-| 9 | Artifact | Must embed its preprocessing config; training echoes resolved config |
-| 10 | Max scan length | Configurable `max_scan_bytes` cap exists |
-
-## 11. Open Decisions (answer before/at M-Conv-Core)
-
-1. **K default:** proposed 5 — confirm or change.
-2. **Stride default for recorded benchmarks:** proposed 2 (speed), with S=1 as one ablation run — confirm.
-3. **Stemmer dependency policy:** `rust-stemmers` crate vs. hand-rolled vs. drop stage 9 entirely.
-4. **Config UX:** CLI flags only, or interactive Q&A mode as well.
-5. **Weighted clauses (CoTM-style i16 per-clause weight, ±1 updates):** include as M-Ablate arm now, or defer to backlog.
-6. **Crate layout:** new module(s) in the existing crate (consistent with current single-file style?) vs. splitting into modules — governed by the coding rules to be supplied.
-
-## 12. Backlog / Future Research Tracks (not Phase 2)
-
-- **GraphTM-lite:** chain-graph, depth-2 message passing over byte windows. Trigger: MVP error analysis shows failures needing context beyond K bytes (e.g., long-range negation). Validated framing: our conv model is GraphTM's depth-1 disconnected special case.
-- **Weighted clauses (CoTM)** if not taken in §11.5.
-- **Caps-sentinel preprocessing** (0x01 before ALL-CAPS words).
-- **TM-autoencoder embeddings** (self-supervised, label-free) — separate research project.
-- Bit-parallel/SIMD evaluation; UTF-8-boundary-aligned windows for cleaner non-ASCII explanations; Platt calibration; multi-class.
-
-## 13. Notes for the New Session
-
-- Carry into the new session: **this document + the Phase 1 source + Cargo.toml + the coding rules** (not yet supplied — apply them before writing any code).
-- Existing conventions observed in the code and to be preserved unless the rules say otherwise: `#![forbid(unsafe_code)]`, no-panic policy (Result everywhere, no assert in production paths), absolute-path policy for I/O, deterministic seeded runs, invariant caches validated on load, fail-fast CLI parsing, doc-comments explaining *why* not just *what*.
-- First concrete actions: resolve §11 items 1–4, then M-Preprocess and M-ByteBag in parallel (both small), then M-Conv-Core.
-```
-
-
-
-# Other Notes:
-
-
-
-Design questions in a context of the 2018 Ganmo paper: 
-1. What are the Automata properties needed for a Ganmo-Game (e.g. as satisfied by a Tsetlin Automata, if only for some games)?
-2. Could needed-properties vary by Game-Outcome-Task (type)?
-3. Could a simpler or different Automata play a given (type of) Ganmo-Game?
-4. For example, for a byte-convolution-game, could a more optimal Automata be defined?
-5. Diverse Team Composition: Could ~teams of automata with diverse properties perform well for some game-spaces?
-
-
-1. Versions:
-- First MPV: We of course need a train-test-evaluate version.
-- Eventually there should be a production-prediction version, e.g. with self-contained pre-compiled 'weights.'
-- There may be a 'uses adjacent model in file' production version also oriented towards prediction (but less extremely optimized).
- - There may also be a 'keep training on the fly' production version, etc.
-
- 2. feature goal (if next-project stretch goal): A continual stream evaluator, e.g.
-byte-stream convolution modeling,
-with some kind of paired-offset-window chunks to average-over start-stop points, e.g.
-there are two 128 byte evaluators that return results after 128 byte, which might be in the middle of a word, so, in theory, comparing the output of these two offset by 64byte return schedules, it may be possible to do a continual stream reporting functionality with very light overhead.
- every 128 bytes
-- bitwise optimized
-- balanced between pre-processing-minimal and performance-best
-- results likely sent to some Database or other endpoint for logging/alerting.
-
-The main 'edge' case might be if a half-word somehow creates a false-positive... but that might be highly unlikely for the convolve-process.
-
- There would likely be double-signals caught by both, which... might be averaged out. But a simple detector might not care: Zero vs. not-zero: two positive signals is still not zero.
-
-Mode and Case Handling Outline:
-
-
-# Mode & Case Handling Bullet Points Summary
-## Framework: Three Modes & Rules
-
-### Three Modes of Operation:
-1. Production-Release Mode:
- - Never panics, halts, or leaks data.
-- Uses 2-byte error codes (no heap, no strings, no PII).
-- Smoothly handles all cases via "Let It Fail & Recover" (with optional logging).
-- Uses a Three-Level Recovery Hierarchy
-
- 2. Debug Mode:
-- Similar to production but logs verbose diagnostics (heap allowed).
-- Uses `eprintln!` for errors and `debug_assert!` for internal invariants (gated to avoid running in test/production).
-- Optional debug printing/logging for inspection.
-
-3. Test Mode:
-- Uses `assert!` in test functions.
-- Deliberately crashes/panics to generate stack traces for debugging.
-
-
-
-### Rules:
-
-1. All functions return `Result<T, YourProjectError>`. The error payload is always the 2-byte `YourProjectError` enum. All operations are expected to eventually fail in some way; all such failures must be smoothly handled.
-
-2. Production-Release Mode (Result-Error case-handling):
-- never panics
-- no heap in error-code-return from functions
-- no print or log of that code by the function before the code is returned
-
-3. Separate Debug-Mode Assertions from Cargo-Tests:
-- `debug_assert!` must be gated with `#[cfg(all(debug_assertions, not(test)))]` to exclude from test mode and production mode builds.
-
-4. Use Gated Verbose Debug-Mode Diagnostics:
-- Use `eprintln!` (gated with `#[cfg(debug_assertions)]`) for debug-only output. Heap is allowed/needed here.
-
-5. Test-Mode Isolation:
-- Test code must be gated with `#[cfg(test)]`.
- - Avoid using test-mode tests inside functions for stable code.
-
-6. Use a Fieldless Enum error-code system.
-
-7. Use Enforced-Custom-Types for Value-Integrity.
-
-8. Use a Three-Level Recovery Hierarchy for recovery and state.
-
-
-### Enforced-Custom-Types & Value-Integrity:
-- Use `struct`/`enum`/`impl` to enforce value boundaries for inputs and intermediate values. This ensures invalid states (including bit-flips, corruption) are caught and handled as errors, not passed silently.
-- required: add a validity-recheck into the .get() method
-- Optionally use a .validity_recheck() method
-- While a custom type in Rust can enforce and validate that a value is within the definition boundaries, this check only happens once when the constructor is run ( .new() ), assuming that the constructor was correctly written to carry out that check correctly. If memory-corruption happens after that initial check there are no automatic checks that will catch that the value is now invalid (e.g. as the value is returned from and accepted by another function). Additional .validity_recheck() methods can be made and used to manually check at specific points.
-- Using custom types helps to manage compatibility within the design (e.g. narrowing scope of function inputs)
-- vanilla custom types (without additional validity-checks) guard against design errors (coding-mistakes) and 'expected' errors.
-- additional validity-rechecks can add guards against some electrical, hardware, and adversarial based errors, or 'unexpected errors.'
-- Getting and mutation/updating use methods that must be manually designed to check & enforce boundary checks and validity.
-#### Public & Private
-- note: the individual rules for structs, enums, impls, and their combinations, vary.
-- A struct CAN be safely pub (so other modules can use the type name in signatures).
-- The struct's inner fields should NOT be pub (so other modules cannot bypass checks).
-- Example of safety for combinations: if an enum variant carries data then do not put raw unbounded primitives inside that; rather, put a bounded struct inside.
-
-### Three-Level Recovery Hierarchy ("Let It Fail & Recover")
-Production-release failures should fit one of three bounded recovery tiers:
-- Recovery Tier 1: Micro-Retry (Local) — If err.is_retryable() is true, a caller repeats the bounded operation (with backoff/sleep).
-- Recovery Tier 2: Step Fallback / Safe Degradation (Subsystem) — This is at a level above which any retry-errors would be thrown. If non-retryable, or retry attempts are exhausted, the subsystem safely aborts the current command, and handles what to do next. This is highly case dependent, and might include trying another function, reverting to a previous state, exiting silently, etc. Some internal state may need to be reset. Ultimately move on with or without logging the case or "error."
-- Recovery Tier 3: Macro Re-initialization — An outer loop reinitializes state and continues execution without halting. The largest case for Tier 3 reboots the entire program.
-
-#### Recovery & State-Recovery:
-Recovery tiers represent functional layers of 'state' in terms of 'recovery levels' to plan for, e.g. what to do when some state-values may not exist. Tier 1 covers the state in question. Tiers 2 and 3 range from small to large 'reboot/retry' scales up to the whole program. Full system restart will likely often have at least some state that it can be restarted with (resulting in no noticeable interruption), sometimes implying that state should be managed outside of retry-loops, to retain intact values.
-
-
-### Error Handling System
-- Single Fieldless Enum:
- A global `YourProjectError` enum (e.g., `#[repr(u16)]`) defines all error codes.
- Properties:
- - No heap (2-byte `Copy` values).
- - No `String` or `io::Error` payloads (prevents PII leaks).
- - Exhaustive `match` for retryability (`is_retryable()` method).
- - Append-only codes: Never reuse or renumber.
-
-- Error Code Table Rules:
- 1. Codes are unique and permanent (e.g., `Fs32tFromStrInputTooLong = 101`).
- 2. Reserve blocks per module/feature (e.g., 100–199 for `FixedSize32Timestamp`).
- 3. Variant names: `AcronymFunctionCondition` (e.g., `IoPermissionDenied`).
- 4. Document codes in the enum’s doc comment.
-
-- Display for Debug Only:
- `Display` impl (for human-readable text) is compiled only for debug/test builds.
-
-#### Error Sites & Propagation:
-- Unique codes permit use of '?' because the unique code of the root-cause error is preserved (not obscured) by propagating the error.
-- If an error site is of note, that site needs to throw a specific error code.
-- This acts as a proxy for manually checking for most internal-invariant type issues.
-
-
-### Two Detection Patterns
-1. If-Detection-Pattern:
- For direct condition checks (e.g., `if len > 32`).
- - Debug: `debug_assert!` (internal invariants only) + `eprintln!`.
- - Production: Return terse error code.
-
-2. Match-A-Function-Call-Pattern:
- For handling `Result` from fallible calls (e.g., `std::str::from_utf8`).
- - Debug: `debug_assert!(false, ...)` (for internal invariants) + `eprintln!`.
- - Production: Drop callee’s error (to avoid heap/PII), return project error code.
-
-
-## Key Principles
-- No Heap in Production: Ban `String`, `format!`, `Box<dyn Error>`, etc.
-- No Panics in Production: Use `checked_add`, `.get()`, etc., to avoid silent wraps/panics.
-- Defensive Programming:
- - Input Validation: Expected issues (e.g., bad user input) → return error code + debug `eprintln!`.
- - Internal Invariant: "Should-not-happen" checks (e.g., bit-flips) → `debug_assert!` + production catch.
-- Retry Logic: Defined per error code (not ranges) in `is_retryable()`.
-
-
-### Example Code
-#### Error Enum
-```rust
-#[repr(u16)]
-pub enum YourProjectError {
- IoNotFound = 50,
- Fs32tFromStrInputTooLong = 101,
- RetryMaxAttemptsZero = 200,
-}
-```
-
-#### If-Detection-Pattern
-```rust
-if !condition {
- #[cfg(debug_assertions)]
- eprintln!("ACRO-101: detail: {}", value);
- return Err(YourProjectError::AcroFnCondition);
-}
-```
-
-#### Match-A-Function-Call-Pattern
-```rust
-match fallible_call(input) {
- Ok(v) => Ok(v),
- Err(_detail) => {
- #[cfg(debug_assertions)]
- eprintln!("ACRO-101: {}", _detail);
- Err(YourProjectError::AcroFnCondition)
- }
-}
-```
-
-### Banned in Production
-- `unwrap`/`expect`/`panic!`
-- Heap allocations (`String`, `format!`, `Box<dyn Error>`)
-- Error messages with PII (file/dir paths, user data, etc.)
-- Unchecked Arithmetic: Arithmetic operators that can panic in production (use `checked_add`, etc.)
-
-
-#### Suggestions (TODO: under construction; move to rules, for manageable use of codes?)
-- Allow effective "blocks" of codes for functions, to allow coherent numbering and easy incrementing in case two developers collide. e.g. if the last two digits are internal to a function, u16 would allow for 654 functions to each have 99 internal errors (or depending on average function size, ten per function may be enough on average).
-- alt phrasing: allow 10 or 100 error-codes per function to manage allocations and changes to codes
-
-
-#### rust_lang_rules
-(Production-Rust rules of thumb)
-
-#### Also see [Mode & Case-Handling](https://github.com/lineality/modes_and_case_handling/blob/main/mode_case_handling_framework_summary.md)
-
-# 🦀 Rust Guidelines 🦀:
-- Always best practice
-- Never ~unsafe code
-- Always extensive doc strings: what the code is doing with project-context
-- Always clear comments
-- Include cargo tests (where possible)
-- Functions should return result (in real life everything will fail at some point)
-- Never remove (still-current) documentation
-- Always clear, meaningful, globally unique names (e.g. variables, functions, etc.): Do not give two things one name, do not give one thing two names.
-- Always absolute file paths
-- Always error handling
-- '?' should be avoided where it would obscure an error
-- Never use unwrap (in production-release builds; use in cargo-tests is obviously valid)
-- Always handle modes (test, debug, production-release) and cases/errors appropriately for that project
-- Always follow boy-scout values
-- Single-Flat: Default to a single-flat-file module x.rs. The crate src/ contains two files: main.rs and x.rs. main.rs uses "mod x; use x::FUNCTIONNAME;" to run the module. The single-flat-file module x.rs (where x = the name of the module) is portable to be added to other crates and projects).
-- Vanilla-Rust: No third party crates.
-
-# 🦀 10 Rust Rules 🦀:
-1. Avoid Risky Methodologies: 
-- no recursion  
-- no goto 
-- no fancy pointer use 
-- no preprocessor branching
-('unsafe' code blocks in Rust may be unavoidable)
-
-2. Loops: either firmly bounded or unbounded w/ recovery
-
-3. Attempt to Pre-allocate all memory (stack, not heap)
-- case by case, avoid heap in production-release-mode where sound
-
-4. Clear Function Scope and Data Ownership
-
-5. Mode & Case Handling, & Defensive-Programming: 
-- Modes: test-mode, debug-mode, production-release-mode; 
-- continual state-recovery (without panic/halt) in production-release-mode
-- See Example/Default Framework: [github.com/lineality/modes_and_case_handling](https://github.com/lineality/modes_and_case_handling)
-
-6. Manage ownership and borrowing
-
-7. Manage return values
-
-8. Manage conditional compilation
-
-9. Communicate: 
-- Use doc strings; use comments. 
-- Document use-cases, edge-cases, policies, intent: features vs. bugs, etc.
-- Rather than let _ =, allow that result to be shown in debugging
-- log errors (MVP: append log file in executable-parent dir)
-
-10. Use state-less operations when possible
-
-#### References & Links:
-- https://en.wikipedia.org/wiki/The_Power_of_10:_Rules_for_Developing_Safety-Critical_Code
-- https://spinroot.com/gerard/pdf/P10.pdf 
-- https://spinroot.com/static/index.html 
-- https://web.eecs.umich.edu/~imarkov/10rules.pdf 
-- https://en.wikipedia.org/wiki/Static_program_analysis 
-- https://www.oreilly.com/library/view/designing-data-intensive-applications/9781491903063/
-- https://www.oreilly.com/library/view/rust-atomics-and/9781098119430/
-- Books by https://en.wikipedia.org/wiki/P._J._Plauger
-#### mode_case_handling_framework_summary
-
-
-
-# Mode & Case Handling Bullet Points Summary
-## Framework: Three Modes & Rules
-
-### Three Modes of Operation:
-1. Production-Release Mode: 
-- Never panics, halts, or leaks data.
-- Uses 2-byte error codes (no heap, no strings, no PII).
-- Smoothly handles all cases via "Let It Fail & Recover" (with optional logging).
-- Uses a Three-Level Recovery Hierarchy 
-
-2. Debug Mode:
-- Similar to production but logs verbose diagnostics (heap allowed).
-- Uses `eprintln!` for errors and `debug_assert!` for internal invariants (gated to avoid running in test/production).
-- Optional debug printing/logging for inspection.
-
-3. Test Mode:
-- Uses `assert!` in test functions.
-- Deliberately crashes/panics to generate stack traces for debugging.
-
-
-
-### Rules:
-
-1. All functions return `Result<T, YourProjectError>`. The error payload is always the 2-byte `YourProjectError` enum. All operations are expected to eventually fail in some way; all such failures must be smoothly handled.
-
-2. Production-Release Mode (Result-Error case-handling):
-- never panics
-- no heap in error-code-return from functions
-- no print or log of that code by the function before the code is returned
-
-3. Separate Debug-Mode Assertions from Cargo-Tests:
-- `debug_assert!` must be gated with `#[cfg(all(debug_assertions, not(test)))]` to exclude from test mode and production mode builds.
-
-4. Use Gated Verbose Debug-Mode Diagnostics:
-- Use `eprintln!` (gated with `#[cfg(debug_assertions)]`) for debug-only output. Heap is allowed/needed here.
-
-5. Test-Mode Isolation:
-- Test code must be gated with `#[cfg(test)]`. 
-- Avoid using test-mode tests inside functions for stable code.
-
-6. Use a Fieldless Enum error-code system.
-
-7. Use Enforced-Custom-Types for Value-Integrity.
-
-8. Use a Three-Level Recovery Hierarchy for recovery and state.
-
-
-### Enforced-Custom-Types & Value-Integrity:
-- Use `struct`/`enum`/`impl` to enforce value boundaries for inputs and intermediate values. This ensures invalid states (including bit-flips, corruption) are caught and handled as errors, not passed silently.
-- required: add a validity-recheck into the .get() method
-- Optionally use a .validity_recheck() method
-- While a custom type in Rust can enforce and validate that a value is within the definition boundaries, this check only happens once when the constructor is run ( .new() ), assuming that the constructor was correctly written to carry out that check correctly. If memory-corruption happens after that initial check there are no automatic checks that will catch that the value is now invalid (e.g. as the value is returned from and accepted by another function). Additional .validity_recheck() methods can be made and used to manually check at specific points.
-- Using custom types helps to manage compatibility within the design (e.g. narrowing scope of function inputs)
-- vanilla custom types (without additional validity-checks) guard against design errors (coding-mistakes) and 'expected' errors.
-- additional validity-rechecks can add guards against some electrical, hardware, and adversarial based errors, or 'unexpected errors.'
-- Getting and mutation/updating use methods that must be manually designed to check & enforce boundary checks and validity.
-#### Public & Private
-- note: the individual rules for structs, enums, impls, and their combinations, vary.
-- A struct CAN be safely pub (so other modules can use the type name in signatures).
-- The struct's inner fields should NOT be pub (so other modules cannot bypass checks).
-- Example of safety for combinations: if an enum variant carries data then do not put raw unbounded primitives inside that; rather, put a bounded struct inside.
-
-### Three-Level Recovery Hierarchy ("Let It Fail & Recover")
-Production-release failures should fit one of three bounded recovery tiers:
-- Recovery Tier 1: Micro-Retry (Local) — If err.is_retryable() is true, a caller repeats the bounded operation (with backoff/sleep).
-- Recovery Tier 2: Step Fallback / Safe Degradation (Subsystem) — This is at a level above which any retry-errors would be thrown. If non-retryable, or retry attempts are exhausted, the subsystem safely aborts the current command, and handles what to do next. This is highly case dependent, and might include trying another function, reverting to a previous state, exiting silently, etc. Some internal state may need to be reset. Ultimately move on with or without logging the case or "error."
-- Recovery Tier 3: Macro Re-initialization — An outer loop reinitializes state and continues execution without halting. The largest case for Tier 3 reboots the entire program.
-
-#### Recovery & State-Recovery:
-Recovery tiers represent functional layers of 'state' in terms of 'recovery levels' to plan for, e.g. what to do when some state-values may not exist. Tier 1 covers the state in question. Tiers 2 and 3 range from small to large 'reboot/retry' scales up to the whole program. Full system restart will likely often have at least some state that it can be restarted with (resulting in no noticeable interruption), sometimes implying that state should be managed outside of retry-loops, to retain intact values.
-
-
-### Error Handling System
-- Single Fieldless Enum:
-  A global `YourProjectError` enum (e.g., `#[repr(u16)]`) defines all error codes.
-  Properties:
-  - No heap (2-byte `Copy` values).
-  - No `String` or `io::Error` payloads (prevents PII leaks).
-  - Exhaustive `match` for retryability (`is_retryable()` method).
-  - Append-only codes: Never reuse or renumber.
-
-- Error Code Table Rules:
-  1. Codes are unique and permanent (e.g., `Fs32tFromStrInputTooLong = 101`).
-  2. Reserve blocks per module/feature (e.g., 100–199 for `FixedSize32Timestamp`).
-  3. Variant names: `AcronymFunctionCondition` (e.g., `IoPermissionDenied`).
-  4. Document codes in the enum’s doc comment.
-
-- Display for Debug Only:
-  `Display` impl (for human-readable text) is compiled only for debug/test builds.
-
-#### Error Sites & Propagation:
-- Unique codes permit use of '?' because the unique code of the root-cause error is preserved (not obscured) by propagating the error.
-- If an error site is of note, that site needs to throw a specific error code.
-- This acts as a proxy for manually checking for most internal-invariant type issues.
-
-
-### Two Detection Patterns
-1. If-Detection-Pattern:
-   For direct condition checks (e.g., `if len > 32`).
-   - Debug: `debug_assert!` (internal invariants only) + `eprintln!`.
-   - Production: Return terse error code.
-
-2. Match-A-Function-Call-Pattern:
-   For handling `Result` from fallible calls (e.g., `std::str::from_utf8`).
-   - Debug: `debug_assert!(false, ...)` (for internal invariants) + `eprintln!`.
-   - Production: Drop callee’s error (to avoid heap/PII), return project error code.
-
-
-## Key Principles
-- No Heap in Production: Ban `String`, `format!`, `Box<dyn Error>`, etc.
-- No Panics in Production: Use `checked_add`, `.get()`, etc., to avoid silent wraps/panics.
-- Defensive Programming:
-  - Input Validation: Expected issues (e.g., bad user input) → return error code + debug `eprintln!`.
-  - Internal Invariant: "Should-not-happen" checks (e.g., bit-flips) → `debug_assert!` + production catch.
-- Retry Logic: Defined per error code (not ranges) in `is_retryable()`.
-
-
-### Example Code
-#### Error Enum
-```rust
-#[repr(u16)]
-pub enum YourProjectError {
-    IoNotFound = 50,
-    Fs32tFromStrInputTooLong = 101,
-    RetryMaxAttemptsZero = 200,
-}
-```
-
-#### If-Detection-Pattern
-```rust
-if !condition {
-    #[cfg(debug_assertions)]
-    eprintln!("ACRO-101: detail: {}", value);
-    return Err(YourProjectError::AcroFnCondition);
-}
-```
-
-#### Match-A-Function-Call-Pattern
-```rust
-match fallible_call(input) {
-    Ok(v) => Ok(v),
-    Err(_detail) => {
-        #[cfg(debug_assertions)]
-        eprintln!("ACRO-101: {}", _detail);
-        Err(YourProjectError::AcroFnCondition)
-    }
-}
-```
-
-### Banned in Production
-- `unwrap`/`expect`/`panic!`
-- Heap allocations (`String`, `format!`, `Box<dyn Error>`)
-- Error messages with PII (file/dir paths, user data, etc.)
-- Unchecked Arithmetic: Arithmetic operators that can panic in production (use `checked_add`, etc.)
-
-
-#### Suggestions (TODO: under construction; move to rules, for manageable use of codes?)
-- Allow effective "blocks" of codes for functions, to allow coherent numbering and easy incrementing in case two developers collide. e.g. if the last two digits are internal to a function, u16 would allow for 654 functions to each have 99 internal errors (or depending on average function size, ten per function may be enough on average).
-- alt phrasing: allow 10 or 100 error-codes per function to manage allocations and changes to codes
-
-
-
-# Planning Notes Part 2: Specific automata-Design
-```
-# Granmo-Game Automata Theory → `ByteConvTM` Design Answers
-
-Below: the four design questions answered against the 2018 paper's actual construction, then the concrete consequences for Phase 2, then resolutions for §11, then the rules-reconciliation needed before code.
-
----
-
-## 1. What automaton properties does a Granmo-Game actually require?
-
-In the 2018 construction, the learning-correctness of the system is **split in two**, and it matters enormously which half a property belongs to:
-
-- **The payoff design (Type I / Type II feedback)** encodes the task. The theorem structure of the paper is: the feedback scheme is engineered so that Nash equilibria of the decentralized game coincide with clause configurations that optimize pattern recognition. **Task correctness lives here, not in the automaton.**
-- **The automaton** is only required to be a *noise-filtering, bounded, local estimator* of "does the include action or the exclude action currently have the higher reward rate?"
-
-Formalized, the automaton must satisfy five properties:
-
-| # | Property | Why the game needs it |
-|---|---|---|
-| P1 | **Deterministic binary action from internal state** (include/exclude = sign side of a bounded counter) | Clause evaluation must be a pure function of state — enables integer inference, masks, and interpretability |
-| P2 | **Bounded monotone state update**: reward moves deeper into the current action's region, penalty moves toward the boundary | This is the entire learning mechanism; any monotone saturating counter qualifies |
-| P3 | **Ergodicity (no absorbing states)** | The environment seen by each automaton is **non-stationary** — every other automaton in the team is also learning, and clause roles migrate. An absorbing automaton would freeze the team in early, wrong equilibria. The clamp at `[1, 2N]` (not absorption at the ends) is load-bearing |
-| P4 | **Sufficient state depth N** to filter stochastic feedback | Feedback arrives with probabilities `1/s`, `(s−1)/s`, gated by `(T∓V)/2T`, and (in the convolutional case) through *one sampled window*. Depth is the low-pass filter; too shallow ⇒ the team oscillates and never settles into an equilibrium |
-| P5 | **Locality**: update depends only on own state + own reward/penalty event | This is what makes the game decentralized, O(1) per literal, and embarrassingly parallel in principle |
-
-A subtle point worth recording: classical Tsetlin-automaton ε-optimality (P(correct action) → 1 as N → ∞) is proven for **stationary** environments and does **not** directly apply inside the team game. What the game actually relies on is P3+P4: enough inertia to resist noise, enough plasticity to escape bad joint configurations. This is why depth is a *tuning* parameter, not a correctness parameter.
-
-## 2. Do the needed properties vary by game-outcome-task type?
-
-Yes — P1/P2/P5 are universal, but **P3 and P4 requirements are task-dependent**, and the byte-convolution game shifts them measurably:
-
-1. **Feedback noise rate differs.** With OR-pooling and single-sampled-window attribution, one Type Ia event touches one window out of potentially hundreds. Per-literal reward statistics are noisier than in flat BOW ⇒ the byte-conv game argues for **equal or deeper N**, not shallower.
-2. **Feedback asymmetry differs per literal population.** At a given slot, exactly 1 of 256 positive literals is true in any window. The 255 "false" positive-literal automata live in an environment that is almost pure `1/s` decay pressure; the automaton for a genuinely predictive byte sees mixed traffic. These are *statistically different environments* attached to identical automata — see Q4.
-3. **Stationarity regime differs by deployment mode.** Your offline train-test MVP tolerates deep, sluggish automata. Your backlogged **continual-stream on-the-fly training** version needs faster ergodic mixing (shallower N, or a deliberate leak) to track drift. Same game, different P3/P4 tuning — this justifies making `states_per_action` a first-class persisted config value, which the hand-off already does.
-4. **Class imbalance** (expected in hate/bullying data) skews how often target vs non-target feedback fires per polarity, which again shifts effective penalty probabilities — another reason the automaton must merely be *robust* rather than *optimal-for-one-environment*.
-
-## 3. Could a simpler or different automaton play the game?
-
-Yes, and the literature-consistent answer is sharper than "yes": **the Tsetlin automaton already *is* the minimal deterministic automaton satisfying P1–P5 — it is exactly a saturating signed counter with a threshold.** Candidate substitutions, evaluated:
-
-| Candidate | Verdict |
-|---|---|
-| **1-bit win-stay/lose-shift** | Fails P4 — no noise filtering; team never converges under stochastic `1/s` feedback |
-| **L_RI / L_RP stochastic probability-updating automata** | Playable in principle, but state is a probability ⇒ fixed-point arithmetic, more memory, and loses the crisp deterministic include/exclude needed for masks and explanations. Strictly worse for this project's constraints |
-| **Krinsky/Krylov variants** (stochastic penalty transitions) | Behaviorally ≈ TA with rescaled effective depth; no benefit here since `1/s` stochasticity is already injected at the feedback layer |
-| **Shallower integer width (i8, N ≤ 127)** | Fully legitimate — depth is tuning (P4), not structure. Halves training memory (≈1.0 MB → ≈0.5 MB at K=5, 200 clauses). Recommend as a config option with i16 default and an M-Ablate arm |
-| **Bounded counter + external integer clause weights (CoTM)** | Demonstrates part of the learning can be moved *out* of the automata entirely — confirms the automaton's role is replaceable/reducible as long as P1–P5 hold |
-
-So: simpler in *width*, yes; simpler in *structure*, no — anything structurally simpler breaks P3 or P4.
-
-## 4. Could a more optimal automaton be defined for the byte-convolution game specifically?
-
-This is the interesting one. Three byte-specific structural facts create real optimization openings — two automaton-level, one encoding-level:
-
-### 4a. The mutual-exclusion defect (strongest candidate)
-
-At each slot k, the 256 positive literals are **categorically mutually exclusive**: a clause that includes two positive literals at one slot has an **empty allowed-bytes mask at that slot and can never fire anywhere**. The standard independent-TA team can and does enter these dead joint states. The game self-heals — a never-firing clause receives only Type Ib uniform decay until one literal drops out — but through a slow "drought" during which the clause contributes nothing.
-
-**Proposed modified automaton: `GuardedInclude` TA.** Identical to the standard TA except the exclude→include boundary crossing for a *positive* literal is refused (state clamps at the boundary) whenever another positive literal at the same slot is already included. Assessment:
-
-- Preserves P1–P4 exactly; relaxes P5 minimally (one read of the slot's cached include-count — a counter you must maintain anyway for mask upkeep, mirroring Phase 1's `included_positive_counts`).
-- Eliminates only joint states that are *provably dead a priori* — it cannot remove any useful equilibrium.
-- The fuller alternative — a single 257-action categorical/pursuit automaton per slot ("no constraint" ∪ "require byte b") — is theoretically cleaner but abandons the decentralized game structure the convergence argument rests on, and complicates Type II feedback. Not recommended for Phase 2.
-
-**Recommendation:** implement standard TA as the recorded baseline, `GuardedInclude` as a config-flagged M-Ablate arm. Hypothesis to test: faster convergence (fewer epochs to plateau), equal-or-better final F1. This is precisely the kind of controlled single-variable experiment §8 demands.
-
-### 4b. Asymmetric population tuning (cheap, low-risk)
-
-The 255-per-slot "almost always false" positive-literal automata need include-side depth (stability once a byte is genuinely learned) but gain nothing from exclude-side depth — deep exclude states only delay rare, wrong inclusions. Negated literals ("byte b must not appear at slot k") receive extremely sparse per-byte feedback and tolerate shallow states. A packed representation — u8 per automaton, 7-bit state + implicit action bit, optionally different effective depths per literal class — quarters training memory versus i16 with no change to game semantics (depth is P4 tuning). Backlog candidate; do not complicate M-Conv-Core with it.
-
-### 4c. Different game board, same automaton: bit-level literals (record in backlog)
-
-Replacing 256 one-hot literals per slot with 8 *bit* literals (2×8×K = 80 literals/clause vs 2,560) lets clauses learn byte *classes* — and ASCII's bit layout is semantically aligned (bit 0x20 is the case bit; digits share a high-nibble). This is not a new automaton; it is a coarser propositionalization. Expected less precise for exact-pattern matching (the core hate-speech use case) but a legitimate ablation for the robustness suite. Backlog, after M-Ablate.
-
-**Bottom line for Q4:** the automaton itself is near-minimal already; the exploitable slack in the byte-convolution game is (i) structurally dead joint states (4a), (ii) statistically heterogeneous automaton populations (4b), and (iii) the encoding granularity (4c) — not exotic replacement automata.
-
----
-
-## §11 Open Decisions — Recommendations
-
-1. **K = 5: confirm.** Covers the core of most English morphemes and slur stems; 2,560 literals/clause matches the footprint math in §4. Add a cheap K ∈ {4, 6} sweep to M-Ablate only if the K=5 plateau looks marginal.
-2. **Stride 2 default: confirm**, S=1 as one M-Ablate run. One cost to record now: with S=2, a fixed byte pattern appears at *alternating in-window offsets* depending on parity of its document position, so the model needs roughly two clause variants per pattern. OR-pooling + 200 clauses absorbs this; the S=1 ablation quantifies exactly what it costs.
-3. **Stemmer: drop stage 9 from Phase 2.** Your own prediction table rates it partially-redundant and typo-fragile; it is the only stage requiring either a dependency or nontrivial hand-rolled code, and it conflicts with the byte-stream-adapter purity of stages 1–8. Delete rather than stub — restoring it later is a clean additive change since the stage list is persisted config.
-4. **Config UX: CLI flags only.** Interactive Q&A is incompatible with the fixed-seed, scripted, identical-split benchmarking discipline in §8. Every recorded run must be reproducible from a command line captured in a log.
-5. **Weighted clauses: defer to backlog.** Do not confound M-Ablate; get the unweighted `ByteConvTM` result matrix first so a later CoTM arm has a clean baseline.
-6. **Crate layout: split into modules.** The new case-handling rules effectively force this (see below).
-
-## Rules Reconciliation (must be settled before M-Conv-Core code)
-
-The supplied Mode & Case Handling rules **conflict with Phase 1's `PipelineError`** (String payloads, `format!`, heap in every error path). Proposed reconciliation, consistent with "frozen baselines are exempt":
-
-- **New engine modules** (`byte_conv.rs`, `preprocess.rs`, `rng.rs`, and the packed-mask code) use a fieldless `#[repr(u16)]` `GranmoModelError` with block allocation (e.g., 100–199 preprocess, 200–299 RNG, 300–499 ByteConvTM, 500–599 artifact I/O), `is_retryable()`, `Display` gated to debug/test, `debug_assert!` gated with `#[cfg(all(debug_assertions, not(test)))]`. No heap, no PII, no panics in any engine path — including training.
-- **The research harness** (CLI, dataset loading, `EvaluationReport`, the frozen `VanillaTM`/`WindowedTM`) stays on the existing `PipelineError`, with a single `From<GranmoModelError> for PipelineError` bridge at the boundary. The harness is a debug-mode research tool per the three-mode framework; the engine is the production artifact.
-- Three-Level Recovery mapping for the engine: Tier 1 = none needed (no I/O in hot paths); Tier 2 = artifact-load validation failure ⇒ reject model, report code; Tier 3 = harness-level re-init (out of engine scope).
-- Enforced-custom-types: `PatchSize`, `Stride`, `SpecificityThresholdU16`, `DecisionThreshold`, `ClauseCount` newtypes with validity-rechecking `.get()`, bounded at construction — replacing Phase 1's raw-primitive config fields for the new engine only.
-
-## Proposed Immediate Sequence
-
-1. **Confirm** the §11 recommendations above (one message from you suffices).
-2. **M-Preprocess**: byte-stream adapter pipeline, stages 1–8, presets `raw`/P0–P5, persisted stage list — under the new error/type rules.
-3. **M-ByteBag** in parallel: byte-n-gram view feeding the unchanged `VanillaTM`, first P0/P1/P2 runs.
-4. **M-Conv-Core**: standard TA baseline first; `GuardedInclude` (4a) behind a config flag as the first automaton-level ablation arm; i8-depth option recorded but defaulted to i16 per the hand-off.
-
-Say the word and I will start with the module skeleton: `error.rs` (full code-block allocation table) + `preprocess.rs` with its test suite.
-```
-
-# Task:
-Please align on scope before any code, no code yet
-Main priority for first discussion:  please start with focus on these questions:
-Starting with:
-4. For example, for a byte-convolution-game, could a more optimal Automata be defined?
-5. Diverse Team Composition: Could ~teams of automata with diverse properties perform well for some game-spaces?
-
-```
-Question 5: Heterogeneous ("Diverse-Team") Automata Composition
-
-Short answer: yes, theoretically safe and genuinely promising — and it costs almost nothing to leave the door open in today's code.
-
-Why it is safe. Properties P1–P5 are per-automaton requirements, and the task-correctness lives in the payoff design (Type I/II feedback), not in the automata. Mixing automata that each individually satisfy P1–P5 does not change the payoff matrix and therefore does not change the set of good equilibria — it changes only the dynamics (convergence speed, noise sensitivity) and equilibrium selection (which good configuration the team lands in). That makes mixed teams a legitimate experiment rather than a gamble on correctness.
-
-Why it is promising — the multi-timescale argument. A depth-heterogeneous team is a fast/slow-weights ensemble:
-
-Shallow-N "scout" clauses: plastic, quickly capture new/rare byte patterns, noisy voters;
-Deep-N "anchor" clauses: slow, stable holders of high-confidence patterns.
-
-This is exactly the composition you would want for your backlogged continual-stream version (drift tracking + stable core vocabulary), and there is precedent for board-level heterogeneity working (multigranular CTM patch sizes; per-clause adaptive specificity in the TM literature).
-
-Composition axes available to us, cheapest first: per-clause state depth N → per-clause specificity thresholds → per-clause GuardedInclude flag → (backlog) per-clause patch size K.
-
-The real risk is experimental, not theoretical: (a) confounded ablations if introduced before the homogeneous baseline exists; (b) vote imbalance — late in training, deep clauses fire reliably while shallow clauses fire noisily, so raw ±1 voting may need per-clause integer weights to balance subpopulations, which interacts with the deferred CoTM arm.
-
-Decision recorded: add M-Hetero as an M-Ablate arm after the homogeneous baseline; in today's foundations, the only accommodation is that specificity is represented as a per-instance thresholds value (not a global constant), so per-clause palettes later are an additive change, not a rewrite.
-```
-
-
-
-# SESSION 1 DELTA — Byte-Convolution Granmo Model, Sessions 1 (append to Phase 2 hand-off)
-
-## 0. Terminology
-"Granmo Model" per project convention. Crate: byte_conv_granmo_model (new,
-flat single-file src/main.rs, ZERO dependencies, #![forbid(unsafe_code)]).
-NOT code-shared with the Phase 1 crate; Phase 1 remains frozen reference.
-
-## 1. §11 Open Decisions — ALL RESOLVED
-1. K = 5 confirmed (bounds 2..=16; K∈{4,6} sweep optional in M-Ablate).
-2. Stride 2 default confirmed; S=1 as ablation. Known recorded cost: with
-   S=2 a fixed pattern appears at alternating in-window offsets by position
-   parity (needs ~2 clause variants per pattern; quantified by S=1 ablation).
-3. Stemmer (stage 9): DROPPED from Phase 2 entirely (not stubbed).
-4. Config UX: CLI flags only (reproducibility; no interactive mode).
-5. Weighted clauses (CoTM): deferred to backlog, after unweighted matrix.
-6. Layout: flat single file, sectioned; new-engine code on the fieldless
-   #[repr(u16)] error enum per the case-handling framework.
-
-## 2. Automata design record (Q1–Q5, settled this session)
-- Task-correctness lives in the Type I/II payoff design, NOT the automaton.
-  Automaton needs properties P1–P5: deterministic binary action from state;
-  bounded monotone update; ergodicity (no absorbing states — clamp [1,2N] is
-  load-bearing); sufficient depth N (noise filter; TUNING not correctness);
-  locality. Classical ε-optimality does not apply inside the team game.
-- The Tsetlin automaton is already the minimal deterministic automaton
-  satisfying P1–P5 (it IS a saturating signed counter). Exotic replacements
-  rejected; depth-width reduction (i8) is a legitimate backlog memory win.
-- Byte-specific defect: ≥2 positive includes at one slot ⇒ empty mask ⇒
-  structurally dead clause (self-heals slowly via Type Ib drought).
-  → `GuardedInclude` automaton variant IMPLEMENTED behind config flag
-  (refuses exclude→include crossing for a positive literal when another is
-  already included at that slot). DEFAULT OFF. It is an M-Ablate arm.
-- Heterogeneous teams (Q5): safe to diversify P4-tier properties (depth,
-  specificity, guard) per clause; unsafe to diversify P1/P2/P5. Accommodated
-  now only by keeping specificity as per-instance thresholds (not a global).
-  M-Hetero = ablation arm AFTER homogeneous baseline. Backlog: bit-level
-  literals (8 bits/slot) as an encoding ablation; asymmetric/packed u8
-  automata as a memory optimization.
-
-## 3. Code inventory (src/main.rs sections; ALL tests passing)
-S1 GranmoModelError: fieldless u16, blocks: 100 Pp / 200 Rng / 300 Cfg /
-   400 Bct / 500 Art / 600 Prb / 700 Ds / 800 Cli. Append-only. Retryable:
-   ONLY ArtFileWriteFailed(501), ArtFileReadFailed(502), DsFileReadFailed(701).
-   Display gated to debug/test. debug_assert unused so far; eprintln
-   diagnostics gated #[cfg(debug_assertions)].
-S2 FastRng: xorshift64; next_u16 (top bits); coin(u16 threshold);
-   gen_index via u128 widening multiply (bias < len/2^64, documented).
-S3 Enforced newtypes (private fields, bounds at construction, revalidating
-   .get()): PatchSize(2..=16), StrideLen(1..=8, ≤K checked at engine),
-   ClauseCount(even, ≤65534), StatesPerAction(8..=16000, i16),
-   SpecificityThresholds(u16 pair, sum==65536; from_specificity(f64) at
-   config time ONLY; from_raw_thresholds for float-free artifact load),
-   VoteThreshold(1..=10000), MaxScanBytes(16..=1_048_576).
-S4 BytePreprocessor: stages 1–8 ALL map-or-drop ⇒ process_byte: u8→Option<u8>,
-   two bits of state, streaming == batch (tested). PreprocessProfile = u16
-   bitmask, presets raw/P0–P5. IMPORTANT SEMANTIC: stage order is canonical;
-   in P3 leet-fold(5) runs BEFORE symbol-strip(7), so carriers !,@,$,0,1,3
-   always fold and survive stripping (intentional, tested). A strip-carriers
-   profile = P0+stages6+7 without leet (expressible via from_bits; unnamed).
-S5 ByteConvTM: binary single bank (even=+, odd=−); literals (k,b) pos at
-   k*256+b, neg at K*256+k*256+b; i16 states in [1,2N]; per-(clause,slot)
-   [u64;4] allowed-bytes masks recomputed ONLY on boundary crossings; all
-   state changes route through increment/decrement_ta_state; OR-pooling with
-   predict early-exit; training scan = single pass with reservoir-sampled
-   fired window (no fired-Vec); integer feedback gates (draw r∈[0,2T) vs
-   T∓V); Type Ia/Ib/II per Phase 1 semantics; PAD 0x00 right-pad when
-   doc<K; max_scan cap; validate_internal_consistency (band + counts +
-   masks); fired_window_positions, describe_clause, fired_clause_bits
-   (embedding deliverable). CountFire pooling NOT implemented (M-Ablate).
-S6 run_self_check: preprocess + fresh-engine smoke; main exits with error
-   code on failure.
-S7 ProbabilityLut: sigmoid(V/(T/2)) filled at config time (only float
-   site), runtime = one u16 index; validity_recheck (monotone).
-   sweep_decision_thresholds: full integer threshold sweep, confusion
-   counts + P/R/F1 per row (floats = offline reporting, permitted).
-S8 ModelArtifact (FULL training artifact, kind=1): magic GRANMOB1, version 1,
-   header (profile bits, K, S, clauses, T, N, forget/reinforce u16s,
-   max_scan, guard, kind) + raw i16 states + FNV-1a-64 trailer. Masks/counts
-   NOT stored — rebuilt from states on load, then
-   validate_internal_consistency as final gate. Round-trip is behaviorally
-   bit-exact (tested). Kind=2 CompactInference RESERVED for M-Prod-Pass
-   (will embed LUT verbatim to keep production load float-free).
-S9 Dataset: dependency-free RFC-4180-subset CSV parser (quotes, escaped
-   quotes, embedded commas/newlines — required for social-media text);
-   load_labeled_csv (binary label = byte-equality with --positive-label,
-   all else negative; empty cells skipped); split_dataset (integer percent
-   1..=99, seeded Fisher–Yates, deterministic; tested). JSONL: deferred
-   (backlog — no dependency-free JSON parser this phase).
-S10 run_single_experiment: preprocess-once → per-epoch seeded shuffle →
-   train → eval (accuracy@V>0 + full sweep + best-F1 row + timing).
-S11 CLI: modes train/batch/predict; batch = presets raw,p0,p1,p2 on ONE
-   identical split+seed. predict replays the persisted profile, prints vote,
-   LUT probability, and fired-clause explanations with byte offsets into the
-   PREPROCESSED stream. Fail-fast parsing. Defaults: K5 S2 200 clauses T50
-   N100 s5.0 max-scan1024 epochs25 seed42 split80.
-
-## 4. Known caveats / tuning notes
-- Engine learning test (negation micro-corpus) passes at: K5 S1, 32 clauses,
-  T15, N100, s3.0, 300 epochs, seed 42. Harness e2e test passes with same +
-  shuffling, 400 epochs, tolerance ≥0.875 accuracy / ≥0.85 F1.
-- Corruption test flips byte 40 — must stay within 32+2·state_count.
-- Always use --release for real datasets.
-- train_step allocates one scratch Vec per step (documented, harness-tier);
-  inference paths allocate nothing.
-- Explainability offsets refer to preprocessed bytes; mapping back to raw
-  source offsets is future work (needs per-stage offset tracking).
-
-## 5. Milestone status → next actions (priority order)
-DONE: M-Preprocess, M-Conv-Core, M-Explain (primitives), M-Prob, full
-artifact I/O, harness/CLI.
-NEXT (a) M-ByteBag: flat byte-n-gram baseline — THE scientific control for
-  "does convolution earn its complexity" (§8 success criteria depend on it).
-NEXT (b) M-Prod-Pass: compact artifact kind=2 (masks+polarities+LUT+profile,
-  drop states), size/throughput measurement.
-NEXT (c) Robustness suites: obfuscation generator + word-boundary/negation
-  minimal pairs (build once, freeze).
-THEN M-Ablate matrix incl.: OR vs CountFire, S1 vs S2, GuardedInclude,
-  i8-depth, M-Hetero (mixed depth/s), byte-bit-literal encoding; CoTM
-  weights last.
-
-
-# Session 2 Alignment — Q4, Q5, and M-ByteBag Scope 
-
-## 1. Q4: A more optimal automaton for the byte-convolution game — position confirmed, one addition
-
-The Session-1 position stands and nothing in it needs reopening:
-
-- The Tsetlin automaton is structurally minimal for P1–P5; the exploitable slack is (i) dead joint states, (ii) heterogeneous literal populations, (iii) encoding granularity — not replacement automata.
-- `GuardedInclude` is implemented, default OFF, an M-Ablate arm. Correct placement: it prunes only a-priori-dead configurations, so it cannot remove useful equilibria, but it must not contaminate the recorded baseline.
-- 4b (packed u8 / asymmetric depth) and 4c (bit-level literals) remain backlog. Confirmed.
-
-**New observation worth recording before M-ByteBag:** the flat byte-n-gram baseline is *itself* an implicit control on the mutual-exclusion defect. A bag encoding has no categorical per-slot structure, hence **no structurally dead joint states exist for it at all**. This gives us a three-way diagnostic once the matrix runs:
-
-| Outcome pattern | Interpretation |
-|---|---|
-| Conv(no guard) ≈ Conv(guard) ≈ ByteBag | Defect immaterial; convolution not earning complexity |
-| Conv(no guard) < ByteBag, Conv(guard) ≈ ByteBag | Defect is real and the guard repairs it |
-| Conv(guard) > ByteBag | Convolution earns its complexity independent of the defect |
-
-This costs nothing — it falls out of runs we were doing anyway — but it should be written into the M-Ablate analysis plan now so the comparison is read correctly later. Please treat this as an addition to the §8 analysis notes.
-
-## 2. Q5: Diverse-team composition — recorded decision confirmed, two small deltas
-
-The quoted decision block is sound and I confirm it as recorded: mixing automata that individually satisfy P1–P5 changes dynamics and equilibrium selection, not the equilibrium set; M-Hetero is an ablation arm strictly after the homogeneous baseline; the only present-day accommodation is per-instance (not global) specificity thresholds — which Section 3 of the current code already satisfies (`SpecificityThresholds` is a per-engine value).
-
-Two deltas to record:
-
-1. **The accommodation must also hold in the ByteBag engine.** When we write it, specificity/depth are per-instance fields exactly as in `ByteConvTM`, so M-Hetero later applies to both engines without rewrite. Trivial, but worth locking now.
-2. **Cheap instrumentation for the vote-imbalance risk.** The identified risk (deep "anchor" clauses fire reliably, shallow "scouts" fire noisily, distorting raw ±1 voting) is directly measurable from data we already compute: the per-clause fire-rate histogram over the test set is a fold over `fired_clause_bits`. Recommend adding a fire-rate report to the harness during M-Ablate (not now) as the diagnostic that decides whether M-Hetero needs the CoTM weight arm pulled forward. No foundation change required today.
-
-## 3. Scope decision required for (a): where M-ByteBag lives
-
-This is the one genuine scope question before code. The original hand-off said "tokenizer swap on the unchanged `VanillaTM`" — but that plan predates the Session-1 pivot to a new zero-dependency crate. `VanillaTM` lives in the frozen Phase 1 crate with a *different* CSV parser, RNG, split routine, and preprocessing path. Running the control there would violate the identical-splits/identical-preprocessing discipline that the entire §8 comparison rests on, or force us to prove cross-crate split equivalence — worse than just writing the baseline.
-
-**Recommendation: implement `ByteBagTM` in this crate.** It shares `BytePreprocessor`, `load_labeled_csv`, `split_dataset`, `FastRng`, `sweep_decision_thresholds`, and the report printer — so the control and the treatment differ in exactly one variable (flat bag vs. convolution), which is the point of a control.
-
-Proposed specification (for your confirmation, no code yet):
-
-- **Feature extraction:** overlapping byte shingles of fixed length `n`, **stride 1** (shingling stride is not a tunable here — stride is a convolution concept; a bag wants full coverage). Documents shorter than `n`: right-pad 0x00, one shingle (consistent with locked PAD decision).
-- **Vocabulary:** top-`M` most frequent shingles over the *training* split only; deterministic ordering (count descending, then bytewise-ascending tiebreak) so identical seeds give identical vocabularies. Shingles outside the vocabulary are simply absent features — no OOV token (this preserves the "no OOV concept" comparison honestly: the bag *does* have coverage loss, the conv model doesn't; that difference is part of what we're measuring).
-- **Engine:** flat clause bank, same even/odd polarity scheme, literal `j` = "shingle j present" plus negated twin (2×M literals per clause); presence bits, not counts. Type Ia/Ib/II per Phase 1 flat semantics — no window sampling (no positional structure exists). Same integer gate `(T∓V)/2T`, same `SpecificityThresholds` coins, same `[1,2N]` band routed through increment/decrement methods, same consistency validation pattern. Evaluation via a per-clause included-literal list (flat engines are sparse-include; a 256-bit mask has no analogue here).
-- **Defaults for comparability:** `n = 5` (equal to K, so both models see the same maximal pattern length) and `M = 4000` (matches Phase 1's word-vocabulary scale, making the "10× literal-space" argument auditable: bag = 8,000 literals/clause vs. conv 2,560). Optional `n ∈ {3,4}` sweep deferred to M-Ablate.
-- **Artifact:** ByteBag must persist its **vocabulary** (it is learned state). Fixed `n` means fixed-width serialization: `M × n` bytes, no length prefixes. Propose artifact kind byte = 3 under the existing magic/checksum framing, states + vocabulary in the payload, same four-gate load validation.
-- **Error codes:** new append-only block **900–999 `Bbg*`** (800 is CLI; 900 is next free).
-- **CLI:** add `--engine byte-conv|byte-bag` (default `byte-conv`), `--ngram-len 5`, `--vocab-size 4000`. Batch mode gains the ability to run both engines on the one split — the comparison-matrix command.
-- **Tests:** replicate the established style — vocabulary determinism, presence semantics, order-*insensitivity* (the mirror of the conv order-sensitivity test: `"zab"` vs `"zba"` must be indistinguishable to the bag — that asymmetry is the scientific contrast), padding, invariants after training, artifact round-trip, learning test on the same negation micro-corpus (with a recorded prediction: the bag should *also* pass it, since "not g" vs "very " are themselves distinguishing shingles — the suites where the bag should lose are the word-boundary/positional minimal pairs in NEXT (c)).
-
-## 4. Confirmations needed (one line each suffices)
-
-1. ByteBagTM in this crate per §3 above (vs. Phase 1 crate) — confirm.
-2. Defaults `n = 5`, `M = 4000` — confirm or adjust.
-3. Error block 900–999, artifact kind 3 — confirm.
-4. Record the §1 three-way diagnostic table into the M-Ablate analysis plan — confirm.
-
-## 5. Anything else before session 2?
-
-Nothing blocking. One non-blocking item to have in hand soon: **the actual dataset file** (path, column names, positive-label value) — the harness is dataset-ready, and the first real M-ByteBag vs. ByteConvTM comparison run needs it. Not required to write the ByteBag code.
-
-On your confirmation of §4, the next message will be the M-ByteBag implementation: Section 12 (`ByteBagVocabulary` + `ByteBagTM`), the 900-block error variants, artifact kind 3, CLI extensions, and the test suite — under all existing rules (fieldless error enum, enforced newtypes with revalidating `.get()`, integer-only hot paths, no-panic, checked arithmetic, append-only codes).
-
-
-
-Handoff Doc for Session 3: 
-
-# SESSION 2 DELTA — Byte-Convolution Granmo Model (append to Phase 2 hand-off + Session 1 delta)
-
-Carry into the new session: **Phase 2 hand-off doc + Session 1 delta + THIS document + `src/main.rs` + `Cargo.toml` + the Rust rules & Mode/Case-Handling framework.** All prior locked decisions stand except where explicitly superseded below.
-
----
-
-## 0. Terminology and Ground Rules (unchanged, restated for the new session)
-
-- "Granmo Model" per project convention (never "Tsetlin machine"; "TM/CTM" only if unavoidable).
-- Crate: `byte_convolusion_series_teamgames`, flat single-file `src/main.rs`, **zero third-party dependencies** (hard requirement, reaffirmed this session), `#![forbid(unsafe_code)]`.
-- Mode & Case Handling framework binds all new code: fieldless `#[repr(u16)]` `GranmoModelError`, append-only codes, no heap/no PII/no panic in error paths, `Display` gated debug/test, `eprintln!` diagnostics gated `#[cfg(debug_assertions)]`, enforced newtypes with revalidating `.get()`, checked arithmetic everywhere, `?` only where the root code is preserved, absolute paths only, cargo tests replicate established styles.
-- Integer-only hot paths for engines; floats only at config time (`SpecificityThresholds::from_specificity`, LUT fill) and offline reporting.
-
-## 1. Decisions Made This Session (locked)
-
-| # | Decision | Value |
-|---|---|---|
-| S2-1 | **Dataset format** | **JSONL ONLY.** One JSON object per line; fields `"text"` (JSON string) and `"label"` (string or number). CSV support fully REMOVED (unfit for unstructured social-media text). Error codes 702, 703, 704, 713 are **retired — numbers permanently reserved, never reuse**. |
-| S2-2 | Model persistence | Binary artifact only (magic + header + payload + FNV-1a-64 checksum). No JSON model files. Kind 1 = full training (implemented); kind 2 = compact inference (reserved, M-Prod-Pass); **kind 3 = ByteBag (reserved, next drop)**. |
-| S2-3 | `ByteBagTM` lives in THIS crate | Not in the frozen Phase 1 crate — it must share the preprocessor, loader, splitter, RNG, and sweep so the §8 comparison differs in exactly one variable (positional windowing). |
-| S2-4 | ByteBag defaults | n-gram length **n = 5** (= K, same maximal pattern length as conv), vocab size **M = 4000** (Phase 1 word-vocab scale; literal audit: bag 2×M = 8,000 vs. conv 2×K×256 = 2,560). |
-| S2-5 | ByteBag structure decisions | Shingles are **overlapping, stride 1** (not tunable — stride is a convolution concept). Docs shorter than n → ONE right-0x00-padded shingle (PAD rule §10.4). Vocabulary = top-M shingles of the TRAINING split, ordered **count descending, bytes ascending tiebreak** (deterministic, machine-independent). **No OOV token** — out-of-vocab shingles are absent features; the bag's coverage loss vs. conv's total coverage is part of what the experiment measures. Presence bits, not counts. |
-| S2-6 | Error blocks | Cfg 315–318 (ByteBag newtypes), **Bbg 900–999** (ByteBag module), Ds 708–712 (JSONL). |
-| S2-7 | Three-way diagnostic recorded into M-Ablate analysis plan | Conv(no-guard) ≈ Conv(guard) ≈ Bag ⇒ mutual-exclusion defect immaterial AND conv not earning complexity. Conv(no-guard) < Bag but Conv(guard) ≈ Bag ⇒ defect real, guard repairs it. Conv(guard) > Bag ⇒ convolution earns complexity independent of the defect. (Bag has no per-slot categorical structure ⇒ no structurally dead joint states ⇒ it is an implicit control on the GuardedInclude hypothesis, free.) |
-| S2-8 | Fire-rate report approved | Per-clause fire-frequency histogram over the test set (fold over `fired_clause_bits`) — the M-Hetero vote-imbalance diagnostic. Scheduled for Drop 2.2c, harness reporting tier. |
-| S2-9 | Q5 heterogeneous teams | Confirmed as recorded (Session 1): safe to diversify P4-tier properties per clause; M-Hetero strictly after homogeneous baselines of BOTH engines; only present accommodation = per-instance specificity/depth (already satisfied in both engines' designs). |
-| S2-10 | Communication protocol | Small drops; every drop states explicitly what is ADDED / REPLACED / DELETED. No "optional" edits. |
-
-## 2. Code Delta This Session (all tests passing: 54)
-
-**S9 REWORKED — JSONL-only ingestion:**
-- REMOVED: `parse_csv_bytes`, `load_labeled_csv`, `trim_ascii_edges`, format dispatcher, all CSV tests, CLI flags `--text-col`/`--label-col`.
-- ADDED (Section 9B): dependency-free JSONL record extractor — NOT a general JSON parser. `JsonLineCursor`, `decode_json_string` (full escape set incl. **\uXXXX surrogate pairs → UTF-8 bytes**; raw UTF-8 passes through per §10.5; lenient on raw control bytes — preprocessor's jurisdiction), `skip_json_value` (iterative depth-tracked skipper, escape-aware in strings — unknown keys tolerated), `capture_bare_token` (unquoted labels), `parse_jsonl_record`, `load_labeled_jsonl`.
-- **Skip-vs-error policy (of record):** SKIP silently = blank line, missing text/label key, empty text, non-string text, `null` label, empty object. HARD ERROR = structural malformation on any line (708–712; the file is not what the operator thinks). Line-number diagnostics gated to debug builds (line numbers are not PII; content never printed).
-- Label semantics: decoded token bytes compared byte-for-byte to `--positive-label` (default `"1"`); `"label":1` ≡ `"label":"1"`; `1.0` ≠ `1` by design (loader is float-free, no numeric parsing). Duplicate keys: last wins (tested).
-- CLI: `--text-key` / `--label-key` (defaults `text`/`label`) replace the column flags; help text rewritten for JSONL-only.
-- **Test-boundary note (bug found & pinned):** 709 fires only when a line ends INSIDE a string; a terminated string followed by garbage is 712. Both sides of the boundary are now pinned by tests.
-
-**S12 (part 1) ADDED — `ByteBagVocabulary` (M-ByteBag foundation):**
-- Newtypes: `NgramLength` (2..=16, default 5 — deliberately distinct type from `PatchSize`, never interchangeable in signatures), `VocabSize` (2..=65000, default 4000). Codes Cfg 315–318.
-- Storage: `ngram_flat_bytes` rank-ordered flat (rank = feature index; fixed-width — this exact form is what artifact kind 3 persists, no length prefixes), `lookup_order` = ranks byte-sorted for binary-search lookup — **derived data, rebuilt on load, never persisted/trusted** (same pattern as conv masks).
-- `build_from_documents` (HashMap counting is fine — determinism comes from the full sort afterwards; actual vocab may be < M, recorded not error; empty corpus = Bbg 900), `lookup` (Ok(None) = absent feature; wrong-length shingle = wiring error 902), `ngram_at_rank` (explainability primitive), `extract_presence_bits` (scan-capped, padded-short-doc path), `validity_recheck` (flat-length divisibility, strict permutation + strict byte ordering — strictness doubles as duplicate detection).
-- Tests: ranking/tiebreak, truncation + miss semantics, determinism, PAD path, presence-bit exactness + scan cap, **order-insensitivity** (`"abab"` vs `"baba"` identical bits — THE scientific contrast with the conv engine's order-sensitivity test), empty-corpus rejection, newtype bounds.
-
-## 3. NEXT ACTION — Drop 2.2b: `ByteBagTM` flat engine (specification agreed, implement first)
-
-Section 12 continuation. Everything below was aligned this session; implement without re-deriving:
-
-- **Structure:** single flat clause bank, even indices = +1 polarity, odd = −1 (same scheme as conv). Per clause, `2 × M_actual` automata: literal `r` = "vocabulary shingle r present", negated twin = "absent". i16 states in `[1, 2N]`, include iff state > N, ALL changes through increment/decrement methods (no mask analogue — flat engines evaluate via included-literal sets; keep a cached per-clause include list or count structure and validate it in a `validate_internal_consistency` mirroring the conv pattern).
-- **Evaluation:** clause fires iff every included positive literal's bit is set AND every included negated literal's bit is clear in the document's presence bitset. Input to eval/train = `extract_presence_bits` output (extract ONCE per document per step).
-- **Feedback:** Phase-1 FLAT semantics — **no window sampling, no reservoir** (no positional structure exists). Type Ia over the full literal vector against the presence bits (true literals reinforce at `reinforce_threshold` coin, false decay at `forget_threshold` coin); Type Ib input-independent 1/s decay; Type II increments every false literal (deterministic). Same integer vote gate: clamp V to ±T, draw r ∈ [0,2T), compare vs T∓V. Reuse `VoteThreshold`, `StatesPerAction`, `SpecificityThresholds`, `MaxScanBytes`, `ClauseCount`, `FastRng` unchanged.
-- **Constructor takes the built vocabulary** (vocabulary is built from the preprocessed TRAINING split only — never test data; the harness must enforce this ordering).
-- Public surface mirrors conv: `vote_sum`, `predict`, `train_step`, `fired_clause_bits`, `describe_clause` (decode literal ranks via `ngram_at_rank` — render printable bytes as chars, else hex, same convention), `validate_internal_consistency`, `clause_count`.
-- Error codes: continue Bbg block (904+, append-only) for engine-specific conditions.
-- **Tests to replicate:** order-INsensitivity at the engine level (mirror of conv's order-sensitivity test), invariants-after-stochastic-training (including empty/short docs), learning test on the SAME negation micro-corpus (recorded prediction: the bag SHOULD pass it — "not g" vs "very " are distinguishing shingles; the bag should lose only on the positional/word-boundary minimal-pair suites, NEXT item 5), describe_clause decode, guarded flag does NOT apply (no slot exclusivity — do not add it).
-
-## 4. THEN — Drop 2.2c (agreed content)
-
-1. **Artifact kind 3:** vocabulary flat bytes (`M_actual × n`, fixed width) + engine header + raw i16 states, same magic/checksum framing, four-gate load (checksum → enforced-type header parse → derived-cache rebuild incl. `rebuild_lookup_order` → full consistency validation). Behavioral round-trip test.
-2. **CLI:** `--engine byte-conv|byte-bag` (default byte-conv), `--ngram-len 5`, `--vocab-size 4000`; batch mode gains both-engines-on-one-split (the comparison-matrix command).
-3. **Fire-rate report** (S2-8) in `ExperimentReport` for both engines.
-
-## 5. Remaining Roadmap (priority order, unchanged otherwise)
-
-1. **M-Prod-Pass:** compact artifact kind 2 (conv masks + polarities + LUT verbatim + profile header; drop TA states), float-free production load, size/throughput measurement (tens-of-KB deliverable).
-2. **Robustness suites (build once, freeze):** obfuscation generator (leet/symbol/casing rewrites of held-out positives) + word-boundary/negation minimal pairs — the suites where conv is predicted to beat the bag.
-3. **M-Ablate matrix** on identical splits/seeds: raw/P0/P1/P2 presets × {ByteConvTM, ByteBagTM}; then OR vs CountFire, S=1 vs S=2, GuardedInclude (read via the S2-7 three-way table), i8-depth, M-Hetero (mixed depth/s, informed by fire-rate report), byte-bit-literal encoding; CoTM weights last.
-4. §8 success criteria unchanged: (a) no macro-F1 regression vs. flat baseline, (b) clear obfuscation-suite win, (c) production artifact profile. Bag ≈ conv everywhere is itself a valid finding.
-
-## 6. Known Caveats / Tuning Notes (carry forward)
-
-- Engine learning test passes at K5 S1, 32 clauses, T15, N100, s3.0, 300 epochs, seed 42; harness e2e at 400 epochs, tolerance ≥0.875 acc / ≥0.85 F1. If stochastic-outcome tests fail on new hardware, first knobs: epochs +, clauses + — tune against observed votes, do not weaken invariant tests.
-- Artifact corruption test flips byte 40; must stay within `32 + 2×state_count` — keep test engines large enough.
-- `--release` for any real dataset. `train_step` allocates one scratch Vec (documented, harness tier); inference paths allocate nothing.
-- Explainability offsets refer to PREPROCESSED bytes; raw-source offset mapping is future work (per-stage offset tracking).
-- Vocabulary must be built from preprocessed training-split docs only — leakage guard is the harness's responsibility (test it in 2.2b/c).
-- Backlog unchanged: GraphTM-lite depth-2, CoTM weights, caps-sentinel preprocessing, packed-u8/asymmetric automata, bit-level literals, Platt LUT refill, stream evaluator with paired offset windows, multi-class.
-
-**First concrete action for the new session: implement Drop 2.2b exactly per §3, small-chunk protocol per S2-10.**
-
-
-...
-
-Drop 2.2c-ii — Engine Selection, Comparison-Matrix Batch Mode, Fire-Rate Report
-
-Purpose: (1) --engine byte-conv|byte-bag selection with the bag hyperparameter flags --ngram-len / --vocab-size; (2) engine-construction dispatch in run_single_experiment, including the vocabulary leakage guard (ByteBag vocabulary built from the preprocessed TRAINING split only — the harness responsibility recorded in Session 2 §6, now implemented and tested); (3) batch mode becomes the §8 comparison-matrix command (presets raw/p0/p1/p2 × both engines on one identical split and seed); (4) the S2-8 fire-rate report for both engines (per-clause fire counts over the test set — the M-Hetero vote-imbalance diagnostic).
-
-Evaluation-pass design note (behavior-preserving): the harness now computes ONE fired-clause bitset per test document and derives from it both the vote sum and the fire counts. The derived vote is definitionally identical to the engine's vote_sum (both apply the crate-wide polarity rule — even clause +1, odd −1 — to the same per-clause firing results), so all recorded accuracies and the existing test tolerances are unchanged. The training path and RNG stream are untouched.
-
-Naming compliance notes: config fields for the bag are named bag_ngram_len and bag_vocab_size — NOT ngram_length/ngram_len, which already name a ByteBagVocabulary method and field respectively. New names verified unique: EngineSelection, engine_selection_from_name, vote_from_fired_words, summarize_fire_counts, engine_name_reported, clause_fire_counts, CliUnknownEngine, CliFireRateReportInternalFault.
-
-...
-
-# SESSION 3 DELTA — Handoff (append to Phase 2 hand-off + Session 1 & 2 deltas)
-
-Carry into Session 4: **all prior hand-off docs + this delta + `src/main.rs` + `Cargo.toml` + the Rust rules & Mode/Case-Handling framework.**
-
-**0. Ground rules (additions).** (a) NAMING LAW: one name = one thing, crate-wide. Engine methods are prefixed (`conv_`, `bag_`); plain dispatch names exist only on `ClassifierEngine`; field/local names avoid cross-entity reuse. (b) EDIT PROTOCOL: whole-block ADD/REPLACE on globally unique anchors, or exact-line edits with location qualifiers; never ambiguous references; transient context lives in removable `DROP NOTE` code comments, permanent semantics in doc comments.
-
-**1. Decisions locked this session.** S3-1: `ClassifierEngine` enum (not trait objects) is the polymorphic seam; harness/artifact/CLI written against it once. S3-2: artifact format v2 — kind byte in common prelude (offset 10); kinds: 1=ByteConv full, 2=compact inference (RESERVED, M-Prod-Pass), 3=ByteBag full (vocabulary flat bytes + states); v1 rejected at version gate. S3-3: per-clause P4 accessors (`depth_for_clause` etc., both engines) are the sole present M-Hetero accommodation; `TeamCompositionPalette` is explicit-palette-at-engine-level, scalar-diversity-knob lives in the future training-coach as a palette generator; nothing more before M-Hetero. S3-4: shared integer gate helper `resolve_feedback_gates` (Trn block 1000) used by both engines. S3-5: ByteBag per Session-2 spec — flat feedback, no guard, vocabulary-leakage guard implemented in `run_single_experiment` (train split only; tested). S3-6: fire-rate report (S2-8) implemented; single evaluation pass derives vote + fire counts from one fired-bitset per test document (`vote_from_fired_words` equivalence documented). S3-7: batch mode = comparison matrix (raw/p0/p1/p2 × both engines, one split/seed).
-
-**2. Code delta.** Drops 3.0a (enum + v2 artifact), 3.0b (accessors, gate helper, `shuffle_in_place`), 2.2b (`ByteBagTM`, Section 12B, `bag_` names, codes 904–907), 2.2c-i (ByteBag variant wiring + kind 3, `from_flat_bytes`, `bag_rebuild_masks_from_states`), 2.2c-ii (`EngineSelection`, `--engine/--ngram-len/--vocab-size`, codes 806–807, fire-rate), 3.1 (rename cleanup). Error blocks now: 100 Pp / 200 Rng / 300–318 Cfg / 400 Bct / 500–509 Art / 600 Prb / 700 Ds (702–704, 713 retired) / 800–807 Cli / 900–907 Bbg / 1000 Trn. **70 tests passing.**
-
-**3. Stochastic-outcome tests (3):** `learns_byte_level_negation_micro_corpus`, `bag_learns_negation_micro_corpus`, `harness_bag_engine_end_to_end_on_negation_corpus` (+ the conv harness e2e with tolerances). Knobs if hardware-divergent: epochs +, clauses +; tune against observed votes, never weaken invariant tests. Corruption test flips byte 40 (must stay within 32 + 2×state_count). Always `--release` on real data.
-
-**4. Next actions (priority).** (1) Robustness suites (build once, freeze): obfuscation generator + word-boundary/negation minimal pairs — where conv is predicted to beat bag. (2) M-Prod-Pass: kind-2 compact artifact (conv masks + polarities + LUT verbatim + profile; drop states), float-free load, size/throughput. (3) M-Ablate matrix on identical splits: read via the S2-7 three-way diagnostic (conv±guard vs bag); OR vs CountFire, S1 vs S2, GuardedInclude, i8 depth, K/n sweeps; fire-rate report gates whether M-Hetero needs CoTM weights pulled forward. (4) M-Hetero via `TeamCompositionPalette` (artifact v3/new kind). CoTM weights last.
-
-(possible update:4. Team diversity: concrete plan
-The palette-not-scalar decision stands as recorded. Now that it's unblocked, the minimal first experiment:
-Engine: ByteBag first (it is the engine that matters now; conv gets the palette later via the same seam — both engines' depth_for_clause/*_threshold_for_clause accessors were built for exactly this, and the parallel path snapshots properties per clause already, so the seam survived parallelization intact).
-Palette v1: two species only — anchors (deep N, high s) and scouts (shallow N, low s) — each species a (clause_fraction, StatesPerAction, SpecificityThresholds) tuple. No guard field for bag (recorded: guard doesn't apply). Deterministic assignment by contiguous rank blocks within each polarity so +/− banks stay balanced per species.
-Artifact: new kind (4 = ByteBag-heterogeneous) rather than mutating kind 3 — keeps kind 3 loads byte-stable and avoids a format-version bump. Homogeneous = single-species palette, so kind 3 remains the degenerate case and current behavior is preserved exactly.
-Diagnostic: per-species fire-rate histograms (scope E) — this is what decides whether the recorded vote-imbalance risk is real and whether CoTM weights get pulled forward.
-First recorded run: homogeneous bag (current champion config) vs. 70/30 anchor/scout on the same split — one variable, one row, read against the fire-rate report.
-The coach-side scalar-diversity→palette generator remains future scope (training-coach), as recorded.
-
-Open parameter I need your ruling on: anchor/scout starting values. My proposal: anchors N=200/s=5.0, scouts N=25/s=2.5, fraction 0.7/0.3 — deliberately wide separation so the first run is diagnostic rather than subtle.)
-(## The full-scale result closes the guard question — and opens a specialization one
-
-`always 44/600 (44 vacuous, 0 specialized)` — confirmed: **zero pathological always-firers exist at full scale**. The guard finding can be recorded as final (guard validated, target-free, retained as ablation arm, conv port deprioritized).
-
-But look at the histogram: `min 0  p25 1  median 1  p75 235  max 290`. At N=200/12 epochs, **half the bank holds ≤1 included literal** — starkly bimodal versus the N=50 run's healthy `median 52`. Roughly 300 clauses are heavily specialized (235–290 includes) and ~300 are barely specialized or vacuous. That's the depth-vs-epoch-budget diagnosis confirmed quantitatively: at N=200 an automaton needs 200 net reinforcements to cross the boundary, and the (T∓V)/2T gate starves half the bank before it gets there. Cheap follow-up when you want it: `batch-guard --guard-limits 0` with `--states 100` and `--states 50` at otherwise-full settings (~7 min each) — if F1 holds or improves while median includes rises, N=200 is oversized.
-
-## 1. Vote offset code + should training be strictly balanced?
-
-**Short answer: no, strict balance is not required — and don't discard data to get it.** Three reasons:
-
-1. **Your data is already near-balanced.** The test confusion matrix shows ~10,002 negatives / ~9,946 positives. Post-dedup drift of a few percent is noise.
-2. **The TM training gate self-regulates.** The (T−V)/2T rule damps feedback to whichever side is already winning votes, which absorbs moderate imbalance (down to roughly 70/30) without any intervention.
-3. **The threshold sweep is your imbalance knob, and it's free.** That's exactly why `sweep_decision_thresholds` exists (§8): the decision boundary is a post-training integer, chosen from the full P/R curve, no retraining. Best-F1 at V > 22 is the sweep doing its job — some of that 22 is learned class asymmetry, some may be structural offset from vacuous clauses. The line below tells you which.
-
-If you ever face *severe* imbalance (90/10): prefer, in order — threshold selection (free), duplication-based oversampling of the minority in the train split (no code change, deterministic), and only then per-class vote targets (a real engine change).)
-
-
-**5. Open decisions.** (a) Framework-uniform `new`/`get` on enforced newtypes: keep as the documented deliberate naming exception (my recommendation — call sites are always type-qualified, and the edit protocol replaces whole type impls) or rename per-type — **your ruling**. (b) Dataset file (path, keys, positive label) — needed for the first real batch run, now in progress on your side; record its results against §8 criteria: (i) no macro-F1 regression vs. bag, (ii) obfuscation-suite win, (iii) production artifact profile.
-
-**6. Known caveats carried forward.** Explainability offsets refer to PREPROCESSED bytes (raw-offset mapping = future per-stage offset tracking). Bag inference allocates one presence bitset per document (harness tier; reusable-buffer variant is backlog for production). Backlog otherwise unchanged: GraphTM-lite, caps-sentinel, packed-u8/bit-literals, Platt refill, stream evaluator, multi-class.
-
-Report the rename-drop test results and your batch-run findings; the natural first item of Session 4 is reading those results through the S2-7 table.
-...
-
----
-
-
-## Recommended first diagnostic run
-
-Against your current champion configuration on the deduplicated dataset:
-
-```
-cargo run --release -- --mode batch \
-  --data /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_dedupe_v3.jsonl \
-  --clauses 600 --vote-threshold 160 --stride 1 --patch 5 \
-  --specificity 3.0 --states 200 --vocab-size 4000 --ngram-len 5 \
-  --epochs 12 --seed 42 --workers auto \
-  --fire-guard 2000
-```
-
-This produces the unchanged 8-row baseline matrix (directly comparable to your take-4 results) plus four `+fireguard` byte-bag rows. The limit of 2000 means "fired on 2,000 consecutive shuffled documents (~2.5% of the train split) while holding a learned pattern" — deliberately assertive for a first diagnostic. If it proves too aggressive (reset counts in the thousands with degraded F1), the next sweep points are 8000 and 20000.
-
-**How to read the results (three-way, S2-7 style):**
-
-| Observation (guard row vs. baseline bag row, e.g. p0) | Interpretation |
-|---|---|
-| "always" count drops toward 0, F1 unchanged | Always-fire clauses were pure vote offset / dead capacity; the guard is a capacity-hygiene tool and best-F1 thresholds should move toward 0 |
-| "always" count drops, F1 improves | Reclaimed capacity re-specialized usefully — the guard earns a place in the champion config |
-| Reset total high but "always" count unchanged at eval | Clauses re-converge to the same ubiquitous patterns; the fix belongs on the vocabulary side (frequency-capped vocabulary — backlog candidate), not in more guarding |
-
----
-
-## Handoff delta notes (append to the Session 4 record)
-
-- **S4-1 (locked):** Fire-streak guard implemented for ByteBag: consecutive-fire streak over shuffled training order, vacuous clauses exempt, action = reset-to-fresh, zero RNG consumed, worker-count invariant, ephemeral (never persisted; kind-3 format unchanged; loaded models resume guard-off). OFF by default; CLI `--fire-guard N`, N ∈ {0} ∪ [16, 16777216].
-- **S4-2 (locked):** Batch 2.0 — baseline matrix runs guard-off unconditionally (preserving comparability with all prior recorded batches); `+fireguard` byte-bag arms run only when the flag is active.
-- **Error blocks now:** Cfg extends to 320; Bbg extends to 908.
-- **Backlog additions:** conv-engine guard port via `ConvClauseWorkView` (vacuity = zero includes across all slots); frequency-capped vocabulary as the alternative remedy if the "re-convergence" outcome is observed; never-fire detection (the symmetric diagnostic — a clause with includes that fires on *zero* consecutive documents is starved rather than saturated; the same streak machinery inverts trivially, but that is a separate scoped decision, not this drop).
----
-
-Hand-off:
-```
-
-# Handoff: Discontinuous-Set Ensembles ("Disco-Granmo") for Granmo
-
-**Status at handoff.** Steps 1–3 of the plan (k-fold splitting, per-row prediction records, `row-audit` mode) are implemented and tested. This document records the design decided for the remaining work, the structural constraints of the architecture that the design depends on, the methodology that makes results trustworthy, and an ordered implementation plan. Nothing below has been implemented unless marked **DONE**.
-
----
-
-## 1. Goal
-
-Binary text classification with an **ensemble of high-precision, low-recall components**. Each component is allowed to abstain (predict negative) rather than guess; the ensemble predicts positive if any component predicts positive (OR-combination). The premise: a dataset's positive class is often a union of disjoint "regions," no single model covers all of them well, and separate models trained from different starting points (hyperparameters, engines, preprocessing presets, seeds) cover different regions.
-
-Two delivery variants were decided:
-
-- **MVP1 — rule pooling.** Extract clauses from several trained banks as portable rules, prune those that produce false positives, select a covering subset, and assemble them into one synthetic bank. Cheaper to run and evaluate; keeps a single-model artifact and prediction path.
-- **MVP2 — model ensemble.** Keep separate trained models (possibly across engines and preprocessing presets), prune each of false positives by clause disabling, and OR-combine their predictions via a container artifact. Required when components differ in engine, vocabulary, or preprocessing, since such rules cannot share one bank.
-
-MVP1 first. MVP2 only if the decorrelation test (§6.1) shows cross-engine or cross-preset components add coverage that same-engine rule pooling cannot.
-
----
-
-## 2. Architecture facts the design depends on
-
-These are properties of the existing engines. Any implementer must internalize them before touching the pruner.
-
-### 2.1 Hierarchy
-- **Automaton**: one `i16` state in `[1, 2N]`; include if `> N`.
-- **Literal**: one boolean fact about the input, paired with one automaton. Conv: `(window offset k, byte b, positive|negated)`. Bag: `(shingle rank r, present|absent)`.
-- **Clause**: the AND of its included literals. Fires iff all included literals are true. Zero includes → fires everywhere (vacuous). Conv clauses are evaluated per sliding window and OR-pooled: "pattern occurs anywhere in the document." The conv clause is a translation-invariant fuzzy n-gram template (wildcard slots, negated slots); it is *not* an absolute-position detector.
-- **Polarity**: fixed by index parity. Even index → +1 for class 1; odd → −1. An odd clause is a positive pattern detector for class 0, not the negation of an even clause.
-- **Vote**: `V = Σ fired(even) − Σ fired(odd)`; predict positive iff `V > θ`.
-
-### 2.2 Clause behavior is fully determined by include bits
-`clause_fires_at` / `bag_clause_fires` read only the masks derived from which automata are above N. Therefore a clause can be extracted as `(polarity, set of included literals)` and re-instantiated in another bank (included literals → `2N`, others → `1`) and it fires on exactly the same documents. **Rules are portable objects.** This is what makes MVP1 possible.
-
-### 2.3 Clause indices are not comparable across runs
-Slot 17 in two runs with different training seeds holds unrelated rules. All cross-run comparison must be by **rule content**, never by index. For the bag engine, additionally: the vocabulary is rebuilt per training split, so **rank** r is per-run; rules must be canonicalized with **shingle bytes** (via `ngram_at_rank`), and instantiated together only under a shared or union vocabulary.
-
-### 2.4 Removing a clause is asymmetric (polarity-aware pruning)
-Each clause contributes exactly one of `{+1, 0, −1}` per document. Disabling clause c changes V by exactly c's contribution, only on documents where c fired.
-
-| Disable | Effect where fired | Can fix FP? | Can create FP? | Can cost TP? |
-|---|---|---|---|---|
-| even (+) | V −1 | yes | no | yes (accepted) |
-| odd (−) | V +1 | no | **yes** (TN → FP) | no |
-
-**Rule:** to eliminate false positives, disable **only even clauses**. To build high-precision negative components, disable only odd clauses. One direction per pass; mixing directions is non-monotone and "loop until zero FPs" is not guaranteed to terminate.
-
-### 2.5 Removal must be disabling, not deletion
-Physical deletion breaks: index-parity polarity (every later clause flips), the `ClauseCount`-is-even contract, storage geometry (`ta_states`, `allowed_masks`, `positive_include_counts`, bag mask/guard vectors), the `C+1`-entry `ProbabilityLut`, and artifact gate `ArtStateCountMismatch`. Mechanism: a **clause-active bitset** (`Vec<u64>`, one bit per clause, all set at construction). See §7.2 for touch points.
-
-A disabled clause is a third category, distinct from vacuous (constant ±1 everywhere) and specialized (data-dependent). `summarize_vacuous_vote_offset` must take the active mask and report three buckets.
-
-### 2.6 Conv engine limitations (recorded, not to be "fixed" now)
-- One window per clause: cannot express co-occurrence of cues farther apart than K bytes; separated cues combine only through the linear vote sum. The bag clause can (`has "love" ∧ has "not "`).
-- Stride > 1 fragments patterns across alignments.
-
-Decision: keep the conv engine as the control. Develop pruning/pooling/ensemble against the bag engine first; maintain conv parity only where the `ClassifierEngine` surface requires it.
-
----
-
-## 3. Methodology (non-negotiable)
-
-### 3.1 Three data roles
-- **train** — fit a component.
-- **prune** — held out from train: clause drop-out, threshold selection, set-cover selection. Never used for fitting automata.
-- **test** — held out from both: the only reported numbers.
-
-Pruning on the training side is unrepresentative (FPs there are mostly mislabeled rows). Pruning on the test side contaminates every reported number. Expect prune-set FP ≈ 0 and test-set FP > 0; the gap is the honest measure of pruner overfit. Regularize with a **minimum TP-support** per surviving clause/rule (do not keep a clause firing on fewer than k prune-set TPs).
-
-### 3.2 k-fold and the final holdout
-- **DONE:** `split_dataset_kfold`, `--folds k`, `--split-seed` (independent of training `--seed`).
-- Out-of-fold scoring (rules of model *i* scored on fold *i*) is sufficient for **per-rule statistics** (stability, always-fire/never-fire).
-- Any object combining rules or votes from more than one fold model (synthetic bank, ensemble) has **no clean fold**. For those, cut a **final holdout** (~15%) via `split_dataset` *before* k-folding, run k-fold on the remainder, and evaluate the pooled object once on the holdout. Not yet implemented: `--holdout-percent` flag.
-
-### 3.3 Variance reporting
-One seed cannot distinguish 85.0% from 85.3%. All comparisons must report mean and range over ≥3 seeds or folds. `print_fold_summary` does this for k-fold; batch modes should adopt the same.
-
-### 3.4 Data quality precedes everything
-Mislabeled rows corrupt the pruner (it removes good clauses to satisfy bad labels), pooled-rule scoring, and any level-2 labels. Run the row audit (§4) and quarantine before ensemble work. Quarantine, never auto-delete: "never correct" is the union of mislabeled, ambiguous, and under-represented rows, and no statistic separates them.
-
----
-
-## 4. Current tooling (DONE)
-
-- `LabeledDocument::line_index` (1-based source line; stable row identity; not PII).
-- `split_dataset_kfold(docs, k, rng)`; `KFOLD_MIN=2`, `KFOLD_MAX=50`; codes `DsFoldCountInvalid=713`, `DsFoldGeometryFault=714`.
-- `--split-seed`, `--folds`, `--records-out`, `--score-train-side`, `--records-in`, `--audit-top`.
-- `RowPredictionRecord`, `RowPredictionContext`, `append_row_prediction_records` (TSV `key=value`, appended, absolute path). Codes `Cli 811–814`.
-- `HarnessRunConfig::score_train_side`; `ExperimentReport::{test_row_predictions, train_row_predictions}`.
-- `--mode row-audit`: aggregates by line index; ranks by never-correct → wrong-even-in-train → strength of lean against label; prints review queue.
-- `--model-out` rejected under `--folds > 1` (fail-fast, `CliInvalidValue`).
-
-Recommended workflow before proceeding: accumulate records over several `--split-seed` values with `--score-train-side`, run `row-audit`, review the top of the queue, quarantine to `suspicious.jsonl`, regenerate the training file, re-run k-fold, measure the delta. Then proceed.
-
----
-
-## 5. Features to implement, in order
-
-### 5.1 Canonical rule export (prerequisite for MVP1 and cross-seed analysis)
-**What.** For each clause of a trained engine, emit `(engine, polarity, sorted included-literal set, vocab_fingerprint)`.
-- Conv literal: `(k, b, sign)`; comparable across runs with the same K.
-- Bag literal: `(shingle bytes, sign)` — **not rank**. `vocab_fingerprint` = FNV-1a over `ngram_flat_bytes`.
-**Where.** One function per engine beside `*_describe_clause` (the include-reading loops exist there); dispatch on `ClassifierEngine`. Output as a TSV/JSONL rule file, one rule per line, with run context (split seed, train seed, fold, preset).
-**Also.** Optional near-duplicate clustering by Jaccard over literal sets, and per-rule **stability** = number of runs/folds in which the exact rule (or cluster) appears (stability selection, Meinshausen & Bühlmann 2010).
-
-### 5.2 Cross-fold always-fire / never-fire analysis
-Aggregate `EvalChunkPartial::clause_fire_counts` per canonical rule across folds. Three populations and their remedies:
-- vacuous in every run → depth/epochs, not the guard;
-- same *specialized* rule always-fires in most runs → vocabulary defect (stop-shingle, PAD run); evidence for a document-frequency ceiling / frequency capping in vocabulary build — **this analysis decides whether that feature is needed**;
-- rule appears in one run only and never fires on its test side → seed-specific overfit; minimum-support constraint.
-Note: the fire guard (`FireGuardStreakLimit`) is training-time pruning of always-firing clauses; the pruner below is post-training pruning of FP-carrying clauses. Complementary. If a recurring always-firer survives the guard ("resets nonzero, always-count unchanged"), the guard cannot fix it; only vocabulary changes can.
-
-### 5.3 Clause-active bitset (prerequisite for pruning and synthetic banks)
-See §7.2.
-
-### 5.4 Greedy FP pruner (single model)
-Inputs: a trained engine, the prune split, `engine_fired_clause_bits` per prune document (transpose to per-clause document bitsets).
-```
-FP = { d : label(d)=0, V(d) > θ }
-loop while FP nonempty and not at target FP rate:
-    for each ACTIVE EVEN clause c:
-        fp_hits(c) = |{ d ∈ FP : c fired on d }|
-        tp_hits(c) = |{ d : label=1, V(d) > θ, c fired on d, V(d) − 1 ≤ θ }|   # margin-critical TPs
-        score(c)   = fp_hits(c) / (1 + λ · tp_hits(c))
-    if max score == 0: break                        # remaining FPs unreachable by removal
-    disable argmax(score); ties → lowest index
-    V(d) -= 1 for every d where c fired; recompute FP
-```
-Deterministic (fixed tie-break, no RNG). Greedy weighted hitting set; trivial cost at this scale. Enforce minimum TP-support per surviving clause. Select θ jointly on the prune split via `sweep_decision_thresholds` after pruning (fresh-bank symmetry is gone once even clauses are disabled; θ = 0 is no longer a natural default).
-
-**Baseline to beat:** the max-precision point of `sweep_decision_thresholds` on the unpruned model. Raising θ is the uniform version of the same operation; clause removal is worth having only if targeted removal beats it on test. Measure.
-
-**Report:** precision/recall/F1 on test for (a) unpruned at θ₀, (b) unpruned at sweep max-precision θ, (c) pruned at its selected θ; number of clauses disabled; prune-set vs test-set FP counts.
-
-### 5.5 MVP1 — rule pooling into a synthetic bank
-1. Train k fold models (or N seed models; also across hyperparameter configs, same engine). Export canonical rules (5.1).
-2. Deduplicate; compute stability.
-3. Score every distinct rule on the **prune** data (out-of-fold for per-rule stats; final holdout reserved for the pooled bank): documents fired on, split TP/FP.
-4. Exclude rules above an FP ceiling or below minimum TP-support. Greedy set cover over positive-label prune documents: pick the rule covering the most uncovered TPs; repeat; drop any rule whose TP set is a subset of the survivors' union. Deterministic; no random orderings needed (objective is monotone).
-5. Assemble survivors into a synthetic bank. Bag: build a **union vocabulary** over the contributing models' shingles and remap shingle bytes → new ranks; conv: require matching K. Pad to an even `ClauseCount` with disabled clauses (5.3). Set included literals to `2N`, others to `1`.
-6. Select θ on prune data; evaluate once on the final holdout against the best single model on the same holdout.
-
-Persist as an ordinary kind-1/3 artifact plus the active mask (see §7.4).
-
-### 5.6 Decorrelation test (zero new code; do before MVP2)
-Save two models (e.g. the two IMDB configs; or byte-conv vs byte-bag; or preset `raw` vs `p2`). Score both on one test split with `--records-out`. Join by `line_index` and compute:
-- **oracle accuracy** — correct if either is correct (ceiling for any two-member combination);
-- **OR accuracy/precision/recall** at each model's chosen θ.
-If oracle − best-single < 1–2 points, error sets are correlated and MVP2 is not worth its cost. Same-family models on the same data are usually correlated; decorrelation is expected from engine (positional vs frequency) and preprocessing preset (different byte streams), not from seeds alone. This decides the "fuzzy start" axes.
-
-### 5.7 MVP2 — model ensemble with container artifact
-- Prune each component via 5.4 to a **target FP rate**, not to zero (ensemble FP ≤ K·ε; requires ε ≪ 1/K).
-- Greedy set cover over components' prune-set TP bitsets to drop redundant members.
-- **Ensemble container artifact** (new kind): member artifact paths (absolute), per-member θ, per-member active mask, combination rule (OR initially), per-member preprocessing profile (components may differ — the "shadow administration" case; orchestration splits the raw input per member and rejoins votes).
-- Prediction: run members (parallel is optional), OR the decisions. Report "which component fired" rather than a probability; the per-engine `ProbabilityLut` is meaningless for the ensemble. Recalibrate on prune data only if a probability is required.
-- Evaluate once on the final holdout against the best single model.
-
-### 5.8 Deferred / conditional
-- **Level-2 veto TM over fired-clause bits.** A second bag-style engine taking the fired-clause bitset as `presence_bits` learns interaction rules (`fired(c2) ∧ fired(c4) ∧ ¬fired(c5) → FP`), which a single bank cannot express. Train with label = "level 1 produced an FP here," on data level 1 did not train on. **Gate:** first compute pairwise co-fire rates on prune-set FPs vs TPs from the transposed bitsets. If no pair co-fires on FPs materially above its TP rate, there is no interaction to learn; skip.
-- **Group drop-out validation of the row audit.** Retrain once without the top-m audited rows; compare across folds. Improvement → detector finds noise; degradation → it removes hard-but-valid rows. Per-row leave-one-out retraining is intractable (`rows × seeds × train_time`) and is not to be attempted.
-- **Coverage visualization.** Per component/rule: % of positive rows covered with no FP, overlap matrix (Jaccard over TP sets), % of positives uncovered by any component. All derivable from the prune-set fired bitsets and the records file; start as an external script over TSV.
-- Conv port of the fire guard (already recorded backlog).
-
----
-
-## 6. Implementation notes by code location
-
-### 6.1 Section 1 — error codes
-Add as needed, each with an `is_retryable` arm (match is exhaustive):
-- `Cfg*`/`Bct*`/`Bbg*` for active-mask geometry (mask word count ≠ ⌈C/64⌉; padding bits set).
-- `Ds*` for holdout-percent bounds.
-- `Art*` for the ensemble container (kind, member count, path-not-absolute, member geometry mismatch).
-- `Cli*` for rule-file I/O and malformed rule lines.
-
-### 6.2 Sections 4–5 — clause-active bitset
-Field `clause_active: Vec<u64>` on both engines, all bits set at construction, padding bits clear. Touch points:
-- `conv_vote_sum` / `bag_vote_sum`: skip inactive clauses before the fire test.
-- `conv_fired_clause_bits` / `bag_fired_clause_bits`: inactive → bit 0. `vote_from_fired_words` then yields the correct V automatically.
-- Training pass 1 (`conv_scan_clause_range`, bag sequential pass 1): inactive clauses must not contribute to the V fed to `resolve_feedback_gates`.
-- Training pass 2 (`bag_apply_feedback_to_view_range` and conv equivalent): inactive clauses receive no feedback; the fire guard must not recycle them. (Optional later: explicit "respawn" of a disabled slot to fresh state.)
-- `summarize_vacuous_vote_offset`: accept the mask; three buckets.
-- No change needed: `clause_fires_at`, `clause_fires_any`, mask maintenance, `validate_internal_consistency` (add a check that mask length matches C and padding bits are clear).
-- `ProbabilityLut` remains index-valid (V still in `[−C/2, C/2]`); calibration drifts — recalibrate on prune data or ignore for ensembles.
-
-### 6.3 Sections 9–11 — harness
-- `--holdout-percent` (cut before k-fold via `split_dataset`, second seeded `FastRng` or same `split_rng` sequence — document which).
-- `--mode rule-export`, `--mode prune` (load artifact, prune on a split, save artifact + mask), `--mode pool` (rule file(s) → synthetic bank), `--mode ensemble-eval`.
-- Per-document fired-bitset dump for the prune split (input to pruner, co-fire analysis, coverage map).
-- Batch reports: mean/range over seeds per row.
-
-### 6.4 Section 12 — artifacts
-- Active mask: prefer a **new artifact kind** (or a versioned extension) rather than mutating kinds 1/3, so existing artifacts remain loadable; alternatively store the mask only in the ensemble container and apply on load. Decide once; gates must reject mask/geometry mismatch.
-- Ensemble container: absolute member paths, per-member θ, mask, profile, combination rule; version byte; fail-fast on any missing member.
-
----
-
-## 7. Open questions for the next team
-1. Mask storage: extend kinds 1/3 or container-only? (Container-only keeps single-model artifacts unchanged but means a pruned single model cannot be saved alone.)
-2. Union-vocabulary remap for pooled bag rules: build from contributing models' `ngram_flat_bytes` only, or rebuild from the pooled training data? (Former is deterministic given the artifacts; recommended.)
-3. Target FP rate for per-component pruning under MVP2: fixed ε, or derived from K and a global precision target?
-4. Whether the vocabulary needs a document-frequency ceiling — decided by 5.2, not by design.
-
----
-
-## 8. Success criteria
-- **Pruner:** on test, pruned model's precision at its selected θ exceeds the unpruned model's max-precision sweep point at equal or higher recall, on ≥3 seeds/folds.
-- **MVP1:** synthetic bank on the final holdout beats the best single fold model on F1 or on precision at matched recall, mean over ≥3 split seeds.
-- **MVP2:** proceed only if 5.6 oracle gap ≥ 2 points; success = OR-ensemble on holdout beats best single member on F1 with ensemble FP rate ≤ K·ε target.
-- Every result reported with mean and range; no single-seed claims.
-```
-
-
-...
-
-
-
-TODO:
-1. looking at first-test comparison
-2. If always-fire clauses can be detected, can they be pruned? Can they be part of Gated Learning, or a v2-Gated learning?
-3. probably focus on byte-bag
-4. still work on team-diversity variation hopefully (part of batch 2.0?)
-2. Design Batch 2.0
-note: if it is possible to get meaningful difference from lighter-test setting, more tests can be done. deeper training tests can take hours to run.
-
-For looking for better parameter settings:
-(arguably a nuanced answer, e.g. as you can-should try a small change alone even if you expect one parameter to be tied to another)
-What parameters are tied to others and should be changed with others, and which parameters can be raised or lowered alone?
-
-
-TODO: RUn
-```
-cargo run --release -- --mode batch \
-  --data /home/oops/datasets/json-cyberbullying-detection-dataset/Cyber_Bully_Data_binary_class_dedupe_v3.jsonl \
-  --clauses 600 --vote-threshold 160 --stride 1 --patch 5 \
-  --specificity 3.0 --states 200 --vocab-size 4000 --ngram-len 5 \
-  --epochs 12 --seed 42 --workers auto \
-  --fire-guard 2000
-```
-
-
-# Scope Planning:
-- 1. Small fast do-one-thing-well models
-- 2. Trying for a more performance model able to build on more data
-
-
-# R&D:
-- time series next byte prediction...
-
-# Training Coach:
-Is there a way to make a training coach or tools if not fully automated to progress test by test to find a good/best balance of parameters?
-
-# "Stackable"
-Is there a way to configure some kind of "stackable" learning, maybe like successive convolutions, that will 
-
-# Continuous-retraining-learning types cases:
-
-classic (if virtual) robot soccar-game using GM/TM?
-
-
-# Genetic Alorithms and GM/TM? (related to team-diversity)
+3. future steps / 
+A. use the first-tests to figure out what more data we would like.
+B. design and run more tests, including some 'deeper' runs on larger datasets, and test of more datasets
+C. use those data to decide about adapting the module for particular uses
+e.g. NLP language classification vs. potentially other data with different properties
