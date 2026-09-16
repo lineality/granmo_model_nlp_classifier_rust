@@ -1,35 +1,48 @@
 features_and_granmo_language_definition
 
-# Feature Discovery & Language Definitions in Granmo Models
+# Feature Discovery & Language Definitions in Granmo-Automata-Machine-Systems
 2026 09 10th Geoffrey Gordon Ashbrook
 
 
 #### Feature-Discovery
 One of the underlying, or over-arching, themes in this set of experiments and explorations, being in some respects narrow (if overly) and in other respects broad (if overly), is the topic of feature discovery and the agenda of expanding a possible, coherent, 'collaborating' set or family (or language) of features for one (narrow) problem-space or more (broad) problems more generally.
 
-Narrow:
-Starting from an NLP (natural language process) context, we will look at trying to make two additions, or two levels of additions to a 2018 'vanilla' Granmo Model (TM):
+The context-discussion for this study is going to get, to the taste of some, perhaps a bit too philosophical and broad, but the approach taken here is to measure twice (or several dozen times) and cut once: The focus will return to both most-immediate narrowest experiments and scope and importantly to the breadcrumb trail of next experiments and where those should proactively push (in the absence of future direction-directing data). Mapping out the problem space is here considered concurrently important and in an interactive feedback process with incrementally designing experiments to get better problem-space maps, but also (while to some extend subsidizing modeling for the sake of modeling) choosing to have a specific concrete applied-STEM agenda for what project-tools these models can inform, and then this applied layer joins the virtuous feedback cycle of better data leading to better models leading to better tools, etc. etc. (And lest you think this paragraph to have been too roundly round, this is directly applicable to the design of all three parts of those interlocking loops: models, data, tools).
+
+
+"Feature-descovery and engineering" and "language-definition" are inter-twined but to some extent remain two different areas within Granmo-Automata-Machine-Systems, and to some extend represent two or more goals of this study. A primary goal is looking at 'language definitions' to possibly define increased scope for otherwise mostly unchanged flat (one-level) 2018-type Granmo-Automata-Machine-Systems for NLP classification. But part of that problem space, and the question of defining what a Granmo-Automata-Machine-System is (including what is considered part of it and what is considered outside of it), is looking at how, if, and whether a Granmo-Automata-Machine-System can or should include "Feature-descovery and engineering" on various levels. Part of why I add the term 'system' into my descriptive phrase "Granmo-Automata-Machine-Systems," is that in various cases there may be a larger overall architecture and pipeline needed for a whole process where, notably, a flat-one-layer Granmo-Automata-Machine(System) may optionally be employed in just one or perhaps in multiple places, and potentially for everything in the system in some cases. But part of defining various parts of this overall system-space is looking at where definitions vary. For example, the rules (possibly definable as a "language") for automata testing of data X-feature metadata features/properties are local to that type of operation in the system; for example a methods of ~n-gram/data-gram pruning that is incompatible with that specific automata-vote process may simply need to occur outside and prior within the overall system of various processes.
+
+This will also be a fractally self-similar investigation where initial exploratory tests and data will be needed to inform the priorities or sanities of what to explore later on.
+
+
+
+### Narrow:
+Starting from an NLP (natural language process) context, we will look at trying to make two additions, or two levels of additions to a 2018 'vanilla' Granmo-Automata-Machine-System (TM):
 
 
 ## Level 1: The Standard Library
-Can extend the standard default feature space used by 2018-Granmo Models? This question is largely empirical.
+Can extend the standard default feature space used by 2018-Granmo-Automata-Machine-Systems? This question is largely empirical.
 
 Is this, or can we define this, extended standard feature set as an implicitly native possible feature set that was nascent already in the 2018-Granmo system definition, where the 2018-Granmo definition was (this is the question to investigate) more minimal than necessary? This question is more abstract but should feed into other followup empirical experiments.
 
-The starting point for level-one (again, from an NLP perspective) is looking for a subset of RegeX operations that can be translated into 2018-Granmo-Model DFN bitwise-operation compatible features.
+The starting point for level-one (again, from an NLP perspective) is looking for a subset of RegeX operations that can be translated into 2018-Granmo-Automata-Machine-System DFN bitwise-operation compatible features.
 
-The question will then be framed as a language-definition question: Something like: can Granmo-model feature space be described as a formal language that is a super-set of the original 2018 feature-scope (and is this practical for any use-cases to improve model reach)?
+The question will then be framed as a language-definition question: Something like: can Granmo-Automata-Machine-System feature space be described as a formal language that is a super-set of the original 2018 feature-scope (and is this practical for any use-cases to improve model reach)?
 
 
 #### Features & Equilibria
-Another aspect of the question about feature discovery, feature quantity-scale (perhaps feature type), and perhaps related parameter settings, is the claim or statement in the 2018 paper that Granmo models show only an Global Minima approach and not a stochastic exploration of local minima. This may be a question of semantics around minima and other equilibria, but in tuning NLP Granmo models I have found that 'best' parameters cluster around different equilibria, suggesting (consistent with common sense) that no one pattern is all patterns (which might be a perspective at odds with the idea that a fundamentally confused NLP question-amalgam (e.g. classify this set of data from crazy people saying random things (labeled by the same or other crazy people), where no two people let along a quorum of people could agree on a given label per row or on what that label was supposed to mean, can ever have one single global minima). 
+Another aspect of the question about feature discovery, feature quantity-scale (perhaps feature type), and perhaps related parameter settings, is the claim or statement in the 2018 paper that Granmo-Automata-Machine-Systems show only an Global Minima approach and not a stochastic exploration of local minima. This may be a question of semantics around minima and other equilibria, but in tuning NLP Granmo-Automata-Machine-Systems I have found that 'best' parameters cluster around different equilibria, suggesting (consistent with common sense) that no one pattern is all patterns (which might be a perspective at odds with the idea that a fundamentally confused NLP question-amalgam (e.g. classify this set of data from crazy people saying random things (labeled by the same or other crazy people), where no two people let along a quorum of people could agree on a given label per row or on what that label was supposed to mean, can ever have one single global minima). 
 
 While in some ways mootly abstract, in other ways this 'how many equilibria' question relates directly to implemented and possible strategies for how to search through feature/parameter space to A. identify features and or parameters and B. to stop looking.
 
 
+
+
+
+
 ## Level 2:  
 
-In level two we will take another step into the problem space of feature-discovery and ask whether there can be a native-compatible process of searching a larger feature space, with versions that may include a single Granmo-Model or N-other Granmo-models that perform feature-selection decisions.
+In level two we will take another step into the problem space of feature-discovery and ask whether there can be a native-compatible process of searching a larger feature space, with versions that may include a single Granmo-Automata-Machine-System or N-other Granmo-Automata-Machine-Systems that perform feature-selection decisions.
 
 The overall scheme, again from an NLP standpoint, is exploring an approved AST (abstract syntax tree) subset of RegeX type boolean-defined features. This may be where some of the 'language definition' steps connect the abstract with needed empirical test and design data.
 
@@ -37,17 +50,17 @@ The overall scheme, again from an NLP standpoint, is exploring an approved AST (
 One question here is whether the feature search can or should be formally or informally described as a Genetic Algorithm process, and or in terms of populations and mutations (if not other instrumentalist terms such as species and other feature equilibria).
 
 
-A theme here is keeping feature quantity, and the resulting computation cost and model size, down. It would be a 'good problem to have' if the inherent/native compatible feature space of 2018-Granmo-models were so large that search/sort/narrowing from the abundance became the priority.
+A theme here is keeping feature quantity, and the resulting computation cost and model size, down. It would be a 'good problem to have' if the inherent/native compatible feature space of 2018-Granmo-Automata-Machine-Systems were so large that search/sort/narrowing from the abundance became the priority.
 
 
 # Overall Framing:
 Possibly depending on what results from empirical results, there are various ways this set of goals may be phrases, such as (possibly)
 
-"Defining Granmo-Model Tsetlin-Machine feature-space as a formal regular-language subset"
+"Defining Granmo-Automata-Machine-System feature-space as a formal regular-language subset"
 
 "Identifying or defining FSM set overlap between 1. RegeX engines scope as FSM over input strings and 2. Tsetlin Automata as FSM over learning feedback."
 
-"Using Disjunctive Normal Form (DNF) compatibility to define and expand feature scope of Granmo Models by defining Granmo Tsetlin-Machine Models as a specific formal regular language subset."
+"Using Disjunctive Normal Form (DNF) compatibility to define and expand feature scope of Granmo-Automata-Machine-Systems by defining (what part or whole exactly? of) Granmo Tsetlin-Machine Models as a specific formal regular language subset."
 
 "Linear-Time Subset" vs. "DNF Bitwise compatible subset"
 
@@ -59,7 +72,7 @@ Possibly depending on what results from empirical results, there are various way
 Either a direct or indirect part of this definition or implementation is how the scale of features may be a factor/issue and or how feature-scale may specifically accommodated or managed (some of which may require or come from empirical results).
 
 Possible factors, perhaps case by case are:
-1. Whether quantity of features in a given Granmo-Model vote process causes performance issues other than time-speed. Is voting affected or impeded by either quantity of clauses or presence of bad clauses? (or is each clause separate?)
+1. Whether quantity of features in a given Granmo-Automata-Machine-System vote process causes performance issues other than time-speed. Is voting affected or impeded by either quantity of clauses or presence of bad clauses? (or is each clause separate?)
 
 2. How empty or low performing (or other issues) features can be detected and pruned (more tree talk; ) (e.g. always fire, never fire, below as Document Frequency threshold, etc.)
 
@@ -75,7 +88,7 @@ Possible factors, perhaps case by case are:
 
 To try to frame our problem-space (or what we do not know about our problem space) let's look at three example/case-study/items and a few adornments:
 
-1. Granmo's 2018 paper I think includes the scope of nonlinear pattern modeling and deep-learning type pattern learning (given specific references to those that I do not interpret as placing those topics outside of the discussion). (Note: Looking at the 2018 paper alone is not meant to somehow be pedantically definitive, Granmo might have said something in more details or simply different elsewhere; the point is that me talking about non-linear patterns and deep-learning type flexibility are not necessarily outside the scope of this discussion where the main hub is Granmo-modeles (be they 2018-type or whatever he has invented in the years since).)
+1. Granmo's 2018 paper I think includes the scope of nonlinear pattern modeling and deep-learning type pattern learning (given specific references to those that I do not interpret as placing those topics outside of the discussion). (Note: Looking at the 2018 paper alone is not meant to somehow be pedantically definitive, Granmo might have said something in more details or simply different elsewhere; the point is that me talking about non-linear patterns and deep-learning type flexibility are not necessarily outside the scope of this discussion where the main hub is Granmo-Automata-Machine-Systemes (be they 2018-type or whatever he has invented in the years since).)
 
 2. The conspicuous strangeness of Human-expert hand-made Tokenizer pre-processing layer for trillion-parameter multi-billion-dollar foundation attention models.
 
@@ -92,7 +105,7 @@ Dipole:
 1. Do One Thing Well and Case-By-Case, vs.
 2. A general framework or tool-set
 
-My primary use-case/test-case for developing Granmo Models is for Natural Language Processing, and my primary happens to be English, using an ASCII character-set. But there is a tricky balance between an instrumentalist use of methods that 'juice' the results for today's case, vs. a perhaps slippery-slope of a model that works either more fundamentally or more generally. 
+My primary use-case/test-case for developing Granmo-Automata-Machine-Systems is for Natural Language Processing, and my primary happens to be English, using an ASCII character-set. But there is a tricky balance between an instrumentalist use of methods that 'juice' the results for today's case, vs. a perhaps slippery-slope of a model that works either more fundamentally or more generally. 
 
 
 
@@ -104,7 +117,7 @@ B. Is there a natural 512-binary sub-byte grammar (boolean)?
 
 1. Human-hand Binarizing the data seems absurd, though it may be a practical kludge to 'juice' the results for most everyday use-cases (for a particular use). 
 
-2. What would it take to use granmo-models 'farther down the tool chain' so that instead of granmo-models being used only at the last binarized step, that granmo models are used for either more or all of the processing. (Or as discussed elsewhere is this a confusion of tools in the tool box. Does there need to be a strict separation of a bounded linear final inference process, while 'feature' exploration phases need to be in varous ways at various steps unbounded or less bounded?
+2. What would it take to use Granmo-Automata-Machine-Systems 'farther down the tool chain' so that instead of Granmo-Automata-Machine-Systems being used only at the last binarized step, that Granmo-Automata-Machine-Systems are used for either more or all of the processing. (Or as discussed elsewhere is this a confusion of tools in the tool box. Does there need to be a strict separation of a bounded linear final inference process, while 'feature' exploration phases need to be in varous ways at various steps unbounded or less bounded?
 
 
 # Artifact Discovery
@@ -130,10 +143,10 @@ B. The General Set of Tools and Terms
 1. Bayesian
 2. Fisher-Frequentist
 3. Fully (or Partly?) Sub-symbolic
-4. Granmo Synthesis: Game-Theory, Information Theory, Autonmata-Theory, Computational-Linguistics, distributed & social systems, Decision making, Etc.
+4. Granmo Synthesis: Game-Theory, Information Theory, Automata-Theory, Computational-Linguistics, distributed & social systems, Decision making, Etc.
 
-Part of what I love about Granmo models is how 
-1. Production-release Practical for strict (e.g. Rust) bitwise compute and auditiding
+Part of what I love about Granmo-Automata-Machine-Systems is how 
+1. Production-release Practical for strict (e.g. Rust) bitwise compute and auditing
 2. They represent a different approach
 3. They compliment the overall set of tools and suggest a slightly less cargo-cult approach to the nature of patterns.
 
@@ -147,30 +160,30 @@ And there are other project-task contexts that may be useful to study as well, s
 'Periodic Model Updating, (perhaps 'batch')'
 'Continual Model Training, like "Reinforcement"'
 
-As a task of using a pre-trained model (no pun intended) blurs into the tasks of making a new vision model or evaluating a potentially new or irregular source of data, especially where the process is colony-swarm-coordinated, the old questions about Features and feature-discovery may rise again more concretely. Given how quickly and auditably Granmo Models can be trained and deployed, I think Granmo Models are a natural fit for this area of real-world production tasks.
+As a task of using a pre-trained model (no pun intended) blurs into the tasks of making a new vision model or evaluating a potentially new or irregular source of data, especially where the process is colony-swarm-coordinated, the old questions about Features and feature-discovery may rise again more concretely. Given how quickly and auditably Granmo-Automata-Machine-Systems can be trained and deployed, I think Granmo-Automata-Machine-Systems are a natural fit for this area of real-world production tasks.
 
 As part of framing out our problem space and definitions, it may be instructive to look at areas of adaptability. (As Lear's all licensed fool put it, "We'll set thee to school to an ant".)
 
 Ants are extremely good at adapting within ranges of variation and within the domains of their actions; they are extremely resilient to a wide range of 'disturbance regimes' and extra-regime outliner-long-tail disturbances. But they do not 'adapt' to various tasks that "people" adapt to: ants do not learn to run businesses or on the fly set up new trade networks (though their half-programed niche often involves an expected web of exchange and symbiosis). (And at the same time, it often takes "people" decades, centuries, or millenia to 'learn' what to do and how to do it... and then frequently forgetting after all that work.) Ants do not overtly modify or study their own DNA. As may be demarcated by the traditional 'population-time vs. individual-time, and where a colony is effectively (or literally) one individual body that happens to be not always... uh ...physically continuous. 
 
-The normal scope for looking at any model is probably more or less "How well does model-M do at MNIST in a lab?": score/miss; win/lose. I am deliberately trying to cast a larger net. With Granmo-Models it is (nearly) low-hanging-fruit to expand the set of 'modeling tasks' to include 
+The normal scope for looking at any model is probably more or less "How well does model-M do at MNIST in a lab?": score/miss; win/lose. I am deliberately trying to cast a larger net. With Granmo-Automata-Machine-Systems it is (nearly) low-hanging-fruit to expand the set of 'modeling tasks' to include 
 1. Collecting Datums 
-1. Modifying Datasets
-2. Writing/modifying code that modifies datasets
-2. Writing/modifying code that manages types and uses of datasets (test, train, clean, prune, update, deprecate, etc.)
-3. Writing/modifying code that evaluates models performance
-3. Writing/modifying code that pre-trains models (test, train, validate, cross-validation, pruning; standard workflow space)
-3. Writing/modifying code that batch retrains/updates models
-3. Writing/modifying code that continually retrains/updates models
-3. Writing/modifying code that predicts / performs inference
-4. Use models to determine when to use a model
-4. Use models to determine when to make a model
-5. Use models to identify patterns to use for code (e.g. as context for what/how to write/modify)
-5. Use models to identify tasks to start
-5. Use models to identify tasks to end
-5. Use models to identify tasks to be done
-6. use models for (signal input) perception-detection
-6. use models for (signal output) detection-perception
+2. Modifying Datasets
+3. Writing/modifying code that modifies datasets
+4. Writing/modifying code that manages types and uses of datasets (test, train, clean, prune, update, deprecate, etc.)
+5. Writing/modifying code that evaluates models performance
+6. Writing/modifying code that pre-trains models (test, train, validate, cross-validation, pruning; standard workflow space)
+7. Writing/modifying code that batch retrains/updates models
+8. Writing/modifying code that continually retrains/updates models
+9. Writing/modifying code that predicts / performs inference
+10. Use models to determine when to use a model
+11. Use models to determine when to make a model
+12. Use models to identify patterns to use for code (e.g. as context for what/how to write/modify)
+13. Use models to identify tasks to start
+14. Use models to identify tasks to end
+15. Use models to identify tasks to be done
+16. use models for (signal input) perception-detection
+17. use models for (signal output) detection-perception
 
 
 
@@ -182,7 +195,7 @@ We should also make explicit (lest you think that this wooly tangent has already
 
 In various species there has (probably for some time) been a marginal grey area where intelligent species such as bird-dinours, some cephelopoids, some mammals, for tens or hundreds of millions of years have marginally used tools and developed lifetime-learned skills. The general account (by "people") is that it was with an as yet not fully explained recent breakout that "people" (perhaps with significant historical language-based data-libraries in play) really doubled-down on 'in-lifetime-learning' and sought to very explicitly employ a broader range of feature-learning in-lifetime. (Yes, that is a gross oversimplification, and a topic that is (as of 2026) fuzzy.)
 
-So, to define types of 'features' and 'feature discovery' for Granmo Models, we have some historical parameters that should be noted. How 'low' in the hardware direction are we going to mention or plan to act? Is the 'slow hardware iteration' model going to be (attempted to be) preserved or will learning be otherwise organized?
+So, to define types of 'features' and 'feature discovery' for Granmo-Automata-Machine-Systems, we have some historical parameters that should be noted. How 'low' in the hardware direction are we going to mention or plan to act? Is the 'slow hardware iteration' model going to be (attempted to be) preserved or will learning be otherwise organized?
 
 
 
@@ -211,9 +224,9 @@ Univariate Analysis of Candidates: compute mutual information, chi-square, etc.,
 
 Focusing on n-gram type features: (which may include space-delimited genomic sequence data)
 
-# Defining Feature Scope that is already in 2018 Granmo Models
+# Defining Feature Scope that is already in 2018 Granmo-Automata-Machine-Systems
 
-# Defining Extended Standard/Preset/Default Generalized Granmo-Model Regular Language Feature Space
+# Defining Extended Standard/Preset/Default Generalized Granmo-Automata-Machine-System Regular Language Feature Space
 
 # Defining Further Extended Feature-Discovery Space
 1. Normal
@@ -235,7 +248,7 @@ A further question here is whether either level 1 or level 2 may represent a kin
 # Steps and Tasks
 
 Level 1:
-1. Define the feature-types already present in 2018-Granmo Models
+1. Define the feature-types already present in 2018-Granmo-Automata-Machine-Systems
 2. Define the proposed extended standard feature set
 3. Define what is excluded and how (e.g. lookback, wildcard, etc.)
 4. Define modes and mechanisms for how feature-scale can be (e.g. by configuration parameter) managed.
@@ -386,7 +399,7 @@ Whole doc metric, Whole corpus metric, and item vs. whole-doc-metric or whole-co
 (Q: Multi-class classifier is inherently an ensemble?)
 
 
-(WRONG: the 2018 Granmo paper may have used a similar "threshold encoding" for the gray-scale MNIST study)(but maybe applies to later granmo paper?)
+
 
 
 * As a footnote, Turing (not one for naming things) is known to have developed a very similar "entropy" measure system for his WWII codebreaking work, and Turing and Shannon worked together at Bell-Labs during the war (which is not at all to say that Shannon (and his wife) did not work very hard at ironing out Shannon's landmark standard). Turing had a knack for co-discovering things, including, (of all things) the central limit theorem (and of course the more famous Church–Turing thesis and his 1936 paper on one of hilbert's challenges).
@@ -400,6 +413,37 @@ Whole doc metric, Whole corpus metric, and item vs. whole-doc-metric or whole-co
 - https://en.wikipedia.org/wiki/Hilbert%27s_problems 
 - https://codeberg.org/ziglang/zig/issues/36237
 - https://www.folger.edu/explore/shakespeares-works/king-lear/read/2/4/ 
+
+
+
+# Models, Learning, Features, and Adaptations:
+
+The adaptability of ants in the face of highly dynamic conditions and environments may be an interesting concrete area where we can compare common problem-spaces in computer science and in data-science. 
+
+Production-computer-science has long struggled with applying theoretically beautiful abstractions (that we love dearly and hope to be able to focus on) to the challenging dynamics of reality (which the human mind frequently seems to be repelled by). From the disquieting success of ELIZA, to the disquieting failure of SHRDLU, to the "snake oil" and "pennance" of P.J. Plauger, to the beard trimming of Holzmann, to the rise of Rust, to the perplexing delays in recognizing cybersecurity, to the perplexing delays in recognizing production data science, the 'ant-adaptation' problem space of carrying out 'lower-level' engineering tasks in a dynamic and disturbance-regime characterized set of environments with sufficient equilibria and minima to be able to maintain the enterprise is (if boring to people) a both a significant area and perhaps an area that may highlight significant domains within 'learning and adaptation' that are not overwhelmed by the higher-level curiosities and fantasies of language and exotic consciousness and super-mega-5000-diety-tier-AI. For example, it may be that in the 'boring' realm of C-type language basic utility code, that for resilience there should or could be some level of element of 'learning' to cover the production edge-cases. As of 2026 this 'learning' is the job of 'expert humans who hand craft the features and rules'(that should sound familiar), and for various reasons this learning generally fails to be achieved or maintained and the project goes extinct. But so far there is little discussion of 'low level learning' being inherently a part of low level software development (as in being inherently part of either the code compilation (and language) stack or a part of the deployed software itself, or both), or of low-level-adapation as an 'interesting' or valuable problem-space within Data-Science AI/ML (where discussions usually begins and ends circumambulating MNIST, IRIS, IMDB, etc.) (or in 2026 where thugs chant 'gen-ai!' and 'bitcoin!' and 'IPO' and 'Bro!' between ritual gang acts of violence and intoxication; almost enough to make one teary eye'd for halcyon days of early image net where, yes people were entirely wrong to poo poo subsymbolic learning in their group-monologues, but at least most of them were able to read).
+
+This may be a stretch and erroneous, but when using a system like Granmo's the problem space of adaptability of basic low level processes to dynamic environs the set of issues at least seem much closer together and coherent than trying to abstractly compare C (or zig or odin or Rust) an on embedded device with several gigabytes of python-environment spaghetti (be that sklearn, NLTK, or Keras-Tensorflow, or PyTorch, etc. where the trying to argue that there is an inherent shared native set of needs and operations sounds more like Kurzweil singularity speculation or a 1990's Complexity-Sciences Theory of Everything (note: neither of those areas should be entirely ignored, but also neither are so far directly relevant to writing branch-less control-flow). 
+
+
+2. Models and language
+Models and language are two areas (maybe two areas?) that only have arm-wavy and niche dependent descriptions of. 
+
+As Debora M. Gordon succinctly puts it, Models are often used differently by applied engineering-type STEM people compared with biology-pure-research people, though the grey area is, I think, interesting.
+
+Using models to 
+1. do stuff
+2. make better models
+3. get better data and feedback
+
+Perhaps yet again harkening back to Ashby and Snow,
+these three areas argubaly apply to both 'engineers' and 'pure researchers' 
+
+
+Part of our scope question here is about how all of these might affect a particular model architecture, e.g.
+1. Where the scope is extremely narrow and focused only on doing something in the simplest slimmest way possible (In Bill Hall's delightful phrase "Just do the dumb thing." ( "Ginger Bill" Hall: Quantum Physicist and creator of the Odin language))
+2. Where either the model or the model process is multi-step, e.g. involving using separate model-modules to inform and design the ~final model design and configuration.
+
+
 
 
 ///////////////
@@ -428,10 +472,8 @@ Or is this a kind of 'back-propagation' question, of what tells the previous lay
 
 
 
-Notes:
 
 
-I have yet to work the current power-of-10 turing, analogy pattern echo section into the writeup, but I want to ask first about the booleanization...
 
 A few questions:
 
@@ -440,24 +482,24 @@ It seems like booleanization is key in a few ways... i'm not sure what all the m
 Q1. is it possible to somehow build a 'digital-stack' so that the booleanization is allowed to happen at or near the bottom (either bits or bytes) so that the 'forced-booleanization' (as with MNIST) does not need to happen.
 This may be like the byte-tokenizer, the option where having either 256 booleanized bytes represented or 512 byte-bits represented, there can be a kind of native raw-data-input approach.
 
-In ascii-land, bytes are usually characters. The goal of this bottom-up-approach (or one version of this approach) would be to be more like a deep hidden layer neural network,  to make voted-on feature-discovering be unabstracted from "modeling/training" (if at some expense of interpretability, though perhaps each layer is still interpretable boolean?), so in a kind of end-to-end stack of Granmo models, N layers would select what N-grams to use and possibly what expanded booleanized features to apply to them, etc. Or at least that's good for theory-discussion (and testing). 
+In ascii-land, bytes are usually characters. The goal of this bottom-up-approach (or one version of this approach) would be to be more like a deep hidden layer neural network,  to make voted-on feature-discovering be unabstracted from "modeling/training" (if at some expense of interpretability, though perhaps each layer is still interpretable boolean?), so in a kind of end-to-end stack of Granmo-Automata-Machine-Systems, N layers would select what N-grams to use and possibly what expanded booleanized features to apply to them, etc. Or at least that's good for theory-discussion (and testing). 
 
 To some extent this is an ad-absurdum example that is mostly useful ~rhetorically or for framing and perspective, but I suspect not entirely only that. For example, for ASCII it is a ridiculous thought experiment to decompose characters into bytes and then into bits, why 'go backwards' when we clearly want those higher level features, especially if we are operating in an n-gram type way. But what if the scenario is NLP but not ASCII? What if it is Japanese that might be just hiragana, or just romaji, or just kanji, or the whole soup of everything. 
 
 And while the NLP context is the primary first-to-test model type, this study should at least try to be more general.
 
 
-One of the questions might be around how much a "Granmo modeling system" needs have some type of architecture (or if in theory there could be a very meta-learning system that was slow but looked for whatever pattern).
+One of the questions might be around how much a "Granmo-Automata-Machine-Systeming system" needs have some type of architecture (or if in theory there could be a very meta-learning system that was slow but looked for whatever pattern).
 
-The three-ish modes of "Granmo modeling system" that we have considered so far (all for ASCII NLP classification) are:
+The three-ish modes of "Granmo-Automata-Machine-Systeming system" that we have considered so far (all for ASCII NLP classification) are:
 1. Non-Sutton: Hand made starting features for a flat model. (e.g. preprocessed BOW n-gram text)
 a vanilla BOW N-gram-length=2 is more or less like this, where you lazily or greedily use all those n-grams
 
 2. A two-phase system, search a larger space of N-gram type features and prune, then run train on those features, e.g. starting searching n-gram-length=8 but very strictly pruning to reduce to less than a raw ngram-length=3 would be (possibly with some pre-test-modeling to test the features as much as possible).
 
-3. Some kind of stacked system, maybe analogous to non-ascii-language, where the 'feature' 'encoding' (if such is not a fictional reification cargo cult 'isomorphic mimicry' of the ASCII-BOW workflow) is done entirely by either a separated pipeline step or by layers within an 'end-to-end' stack of modular Granmo model layers.
+3. Some kind of stacked system, maybe analogous to non-ascii-language, where the 'feature' 'encoding' (if such is not a fictional reification cargo cult 'isomorphic mimicry' of the ASCII-BOW workflow) is done entirely by either a separated pipeline step or by layers within an 'end-to-end' stack of modular Granmo-Automata-Machine-System layers.
 
-E.g. Due to the formalities of 'booleanization', the search for 'how to preprocess' might be something that one Granmo model can learn how to do, but that it would need to be done manually before feeding the original text into the next layer... or not. I am not sure about this set of aspects of Granmo models and the roles of Booleanization.
+E.g. Due to the formalities of 'booleanization', the search for 'how to preprocess' might be something that one Granmo-Automata-Machine-System can learn how to do, but that it would need to be done manually before feeding the original text into the next layer... or not. I am not sure about this set of aspects of Granmo-Automata-Machine-Systems and the roles of Booleanization.
 
 Or is the question somewhat one of cost and optimization, that something could be done using modular layers but it would be time-consuming?
 
@@ -485,3 +527,230 @@ A. simple boolean 'features' for a simple small 'flat' model (target features ne
 B. more elaborate strategies can make bucket-gradation systems
 C. a more configurable type of modular/distributable model system?
 D. possibly  the 'start low' the bits and bytes are already booleanized?
+
+
+-> Better-Model -> Better-Data -> (loop)
+"tools"
+-> Better-Functionality -> Better-Feedback/Testing -> (loop)
+
+
+
+
+# The Echo: An intersection between
+- Regular Language Definition
+- Turing Completeness Definition
+- Holzmann/NASA Functionality Exclusion
+- Computability/Optimization
+- Granmo-Automata-Machine-System Inference Definition
+
+
+
+## Semi-Overal, Mirror, Analogy, or Echo Areas:
+
+
+## Tentative Pattern Areas:
+
+
+## Questions:
+- Single Layer vs. Multi-Layer Granmo-Automata-Machine-Systems
+- Rules & Effects of Booleanization
+- "End to end" feature discovery in A. multi-step/phase process, B. contained in a single (leveled) model
+- "Externalization Layers"
+- Forward and backward propagation given pairs of 'representation' and 'externalization' layers.
+- Gated learning and cost-function definition
+- feature-analysis in Re-training and continuous training
+
+
+## Result Planning/Design Ideas:
+
+
+
+
+
+Notes:
+
+power-of-10 turing, analogy pattern echo \
+
+# The Echo
+I am using the term 'Echo' here because I have no interest in a "realist" mysterious theory of everything. In my experience, mirages of centers are things best avoided. There seem to be a strange number of, how to say it, parallel reverberations of similar themes coming from different disciplines. We should try to look at and learn from this as accurately as possible and not force it into a recreational numerological artifact.
+
+Note the term 'bounded' is not simplistic here, it repeats in various ways and places. (e.g. Rules for what is and is not permissible as 'unbounded' for RegeX-subset, and the Two-Rules for Bounded/Unbounded loops from Holzmann.
+
+
+- Regular Languages
+- Finite State Machines
+- DFA
+- unbounded C, vs. restricted Hollzman-power-of-10-C
+- Automata theory
+- Turing, completeness, 
+- Turing oracles
+- Finite State Machine
+	- RegeX
+	- Tsetlin-Machine ?
+- Finite Automaton
+
+- parallelization/re-integration
+- externalization of state (my own obsession)
+
+(Note: I have worked on disambiguating some of the definitions in Holzeman's framing of 'Modes and Cases': see
+1. https://github.com/lineality/modes_and_case_handling/blob/main/mode_case_handling_framework_summary.md 
+2. https://github.com/lineality/modes_and_case_handling 
+
+Overlap/Echo
+- Overlap/Echo between Holzman Subset of C and "regularness" definition for language-theory
+
+
+Possible equivalance (again, not interesting in chasing down hard equivalance):
+- Power of 10 -> booleanizer, ~equivalent to regular-language restrictions
+- 
+- 
+
+Memory allocation and memory ~validation? seems to be an important overall theme: no-dynamic allocation is obviously not "Rust memory rules" or "fil-C" etc., it seems aligned. (maybe)
+
+- Rule: no dynamic allocation after initialization
+
+
+The 2026 Memory-State Debate in Zig-Rust-Odin-C(e.g. Fil-C)
+
+
+- Odd that Entropy-calculation is outside of this
+
+
+Side question:
+- In some ways these 'rules' are functional, but in other ways these rules may be arbitrary.
+- If only for research purposes, would it be possible to make and test the performance of an unbounded ~spaghetti-C Granmo-machine that was able to exhibit shapes and behaviors that were less defined?
+- 
+
+..
+
+"Flat vs. Representation": Chicken & Egg problem for pre-booleanized inputs to a 'Flat' process. 
+
+
+note: most of these changes are at the flat-level...
+- C was reduced
+- 'regular' language is reduced, and Granmo-language is further-reduced
+- But this set of restrictions expands the what the vanilla-flat-2018 search space is by more clearly defining the rule-space... I think?
+
+...
+- booleanization features... of 'tokenized' byte-data? (word-n-grams not byte n-grams)
+
+1. flat level rules: rules for booleanizable relationships? (subest of regex?)
+2. rules for output of one layer that allows it to be input to another layer...?
+
+(breaking analogue data into tabular X columns?)... and comparing them against the original? e.g. n-gram A & n-gram B
+
+
+
+(though there may be a multi-level-level too? rules for combining levels?)
+
+
+TODO: check this:
+```
+"regular language" = set of strings accepted by a deterministic finite automaton. Restated as properties of a program that reads bytes:
+
+- program state always with a pre-set finite range of options?
+- program reads the input once, left to right, updating state on each byte
+
+- updates use fixed function fn(state, "byte") → state 
+(why 'byte')? not n-gram? or clause?)
+
+```
+
+Regular-ness is... part of this set of definitions but still too broad?
+
+(Granmo-language is narrower than a regular language?)
+- Regular
+- Single Pass
+- bounded? 
+- Bitwise Operations/booleanized?
+
+
+
+Q: layers of model being in alternate directions? (quasi-bi-directional?)
+
+
+1. 'bounded-ness'
+2. 'single linear pass'
+3. translateable into linear bitwise operations
+4. regular language definition: regular-ness
+5. the overall iterative loop of retraining (unbounded) vs. specific sub-parts
+6. finite-time computibility
+7. 
+
+
+Granmo tech Evolution note:
+(The 2018 Granmo paper specifically said that it would not suggest any (and so not a tiered "threshold encoding"/bucket system) approach for the gray-scale MNIST study, deferring that topic for the future. It may or may not be relevant here what techniques were discussed later.)
+
+
+
+--
+### On the concept of a layered feature-discovering Granmo-Automata-Machine-System
+
+Assumption: In the overall process of moving from raw data through a system of "models" (perhaps more generally, a 'compiler') to a final output (or final module output), there is no fundamental difference (there is only a semantic disciplinary-lexicon, aesthetics or  convention/custom difference) between pre-processing, encoding, feature engineering, feature discovery, feature pruning, or "representation"). While referred to in different ways it is bits or bytes in and bits or bytes out.  
+
+
+## Layers:
+
+Given that a classic 2018 Granmo-Automata-Machine-System performs classification, what 'classification' task would be performing the task of, (for example, going from raw ASCII (or unicode) bytes to the equivalent of N-Grams)?
+
+A. Classification of one n-gram or byte type X 'feature' as useful or not
+B. Classification of a set of n-gram or byte type X 'features' as useful or not
+
+Question: To determine whether  the result of an earlier stage of selecting a type of feature selection is useful to the later model, is some form of 'back propagation' (if through whole process iteration) needed to provide a performance signal to the earlier 'more encoding/proprocessing oriented' layer?
+
+
+
+
+
+
+
+
+Q1: Discontinuous Mono-Directional Bit/byte N-Grams?
+Q2: Discontinuous Bi-Directional Bit/byte N-Grams?
+
+
+Does this process only make sense in certain specific data-type and data-use situations, or can this more generally make sense for Granmo-Automata-Machine-Systems? Is this primarily a search-space problem?
+How much is the issue of 'features' "not" being able to be evaluated in isolation an issue? (e.g. sets of features that work together, where no individual one by one search would find them?) 
+Or, are there filters such as DF document frequency representation that may, if only for come use-cases or approaches, be able to prune that overly large search space?
+
+..
+
+Very side question:
+Are there any approaches learned from chess-AI or other game space studies that might suggest methods of pruning search trees?
+
+
+
+
+
+
+--
+
+For the most part the lexicon around models and prediction in data science is not framed or oriented around writing functions, procedures, or code. In some cases should there be a more explicit focus of a goal of data science and automated learning being learning and producing a best-findable procedure-function, the best code, for a specified problem-space/use-case?
+
+e.g.
+A. A type/goal/scope of Granmo-Automata-Machine-System that outputs another Granmo-Automata-Machine-System
+
+B. Either a Programming Language or a Compiler that uses something like a Granmo-Automata-Machine-System to compose and optimize functions/procedures/sub-routines for a specific task in a specific case.
+
+
+
+
+..
+
+Q: PCA and Granmo-Automata-Machine-Systems
+
+Two things stand out to me in my experience of the years with Data Science regarding PCA or principle component analysis: 
+
+One: Perhaps echoing the decidedly ill-humoured inflammations around Fisher-Frequentist statistics and Bayesian statistics in the 1900s,
+between finance oriented data science and bio-medical oriented data science where PCA is routinely used as a basic unsupervised model, yet the suggestion of the possibility of that provokes vitriol and rage among financial analysts who hurl conflagrations of abuse and defamation any anyone who violates the realist law that PCA is only for dimensionality reduction.
+
+Two: The wonderful and highly recommended book by Hobson Lane "NLP In Action" (Manning press, https://www.manning.com/books/natural-language-processing-in-action the first edition I consider an eternal classic) thankfully goes into more detail than usual about how PCA is used, and often renamed or re-packaged, in many parts of many NLP modeling approaches (probably with many people never realizing that at a lower level the math is the same, the only difference being the Brand Sticker; leading inadvertently to reification-misunderstandings where people misconstrue the underlying mechanics: yet another case of communication and the psychological results of not following basic hygiene with naming: do not give one things two names, do not give two things one name). 
+
+The point being: PCA is often fundimentally important in many ways, so how does PCA interface (or not) with the mechanics of Granmo-Automata-Machine-Systems?
+
+
+
+
+..
+
+Notes Along with the myth of symbols There are other historically, common assumptions that should be re-examined The primacy of hygiene As his perhaps well dramatized by the computer science. From 1930 to 2030. To pick somewhat arbitrary numbers. While early computer science was very much being developed at a time when paradigmatic models of extremism security issues and all that in the 1930s exemplify There has been an extremely stubborn recalcitrance Whereby Ivory Tower recreational mathematicians see the world is not extending beyond their professional recreational sandbox (as can be directly noted by the writings of the creators of C and the Internet decades after the empirical demonstrations of security issues from the 1960s Dartmouth Internet Not to mention the 1930s and 40s And rather noticed publications by writers, such as Norbert wiener (for example, the human use of human beings) Prolonged pathological refusal to acknowledge the area of cyber security, perhaps mirrors, the pathological refusal to accept the area of stem (for example, burning or imprisoning scientists, instead of creating a science department and letting them play in their sandbox) My own specialization if I have such a thing is in trying to articulate a more generalized notion of stem hygiene and so I am going to naturally propose that this is within the scope of any non-self-destructive organization
