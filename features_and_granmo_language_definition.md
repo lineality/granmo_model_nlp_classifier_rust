@@ -1,11 +1,25 @@
 features_and_granmo_language_definition
 
 # Feature Discovery & Language Definitions in Granmo-Automata-Machine-Systems
-2026 09 10th Geoffrey Gordon Ashbrook
+2026 09 10-16th Geoffrey Gordon Ashbrook
 
 
 #### Feature-Discovery
 One of the underlying, or over-arching, themes in this set of experiments and explorations, being in some respects narrow (if overly) and in other respects broad (if overly), is the topic of feature discovery and the agenda of expanding a possible, coherent, 'collaborating' set or family (or language) of features for one (narrow) problem-space or more (broad) problems more generally.
+
+The term 'Feature-Discovery' likely refers to a heterogenous set of problem spaces, in particular
+1. Data and feature preprocess and engineering before model-training, vs.
+2. The 'feature-discovery' that results from the clause-creation voting process. 
+
+One issue is that from a theory and principle standpoint we do not yet know if there is compelling 'general-rule' way to pick a side between these positions:
+1. There are no inherent differences in 'types' of processing all through the pipeline from raw-input to final output (and in theory one correctly generalized process will account for them all).
+2. There is only one distinction, between 'during-training-feature-discovery' vs. 'before-training-feature-discovery'
+3. Distinctions come from artifacts of approaches, not from inherent 'phase' differences in data-transformation.
+4. There are various types of formal processing-type and processing-phase distinctions in principle and no single 'machine-system' can do them all. 
+Etc.
+
+To make sure this distinction does not get lost, the sequentially first set of experimental targets is around during-training-feature-discovery in a context of defining a Granmo-Language. But the larger context is important in terms of what design decisions are clearly for what in reference to or for combination with what.
+
 
 The context-discussion for this study is going to get, to the taste of some, perhaps a bit too philosophical and broad, but the approach taken here is to measure twice (or several dozen times) and cut once: The focus will return to both most-immediate narrowest experiments and scope and importantly to the breadcrumb trail of next experiments and where those should proactively push (in the absence of future direction-directing data). Mapping out the problem space is here considered concurrently important and in an interactive feedback process with incrementally designing experiments to get better problem-space maps, but also (while to some extend subsidizing modeling for the sake of modeling) choosing to have a specific concrete applied-STEM agenda for what project-tools these models can inform, and then this applied layer joins the virtuous feedback cycle of better data leading to better models leading to better tools, etc. etc. (And lest you think this paragraph to have been too roundly round, this is directly applicable to the design of all three parts of those interlocking loops: models, data, tools).
 
@@ -436,7 +450,7 @@ Using models to
 3. get better data and feedback
 
 Perhaps yet again harkening back to Ashby and Snow,
-these three areas argubaly apply to both 'engineers' and 'pure researchers' 
+these three areas arguably apply to both 'engineers' and 'pure researchers' 
 
 
 Part of our scope question here is about how all of these might affect a particular model architecture, e.g.
@@ -534,9 +548,12 @@ D. possibly  the 'start low' the bits and bytes are already booleanized?
 -> Better-Functionality -> Better-Feedback/Testing -> (loop)
 
 
+# The Echo: 
+Regular Language definition for Booleanization
 
 
-# The Echo: An intersection between
+
+An intersection between
 - Regular Language Definition
 - Turing Completeness Definition
 - Holzmann/NASA Functionality Exclusion
@@ -737,6 +754,14 @@ B. Either a Programming Language or a Compiler that uses something like a Granmo
 
 ..
 
+# PCA, LDA, SVD, Granmo:
+https://en.wikipedia.org/wiki/Linear_discriminant_analysis 
+https://en.wikipedia.org/wiki/Principal_component_analysis 
+
+PCA: Unsupervised
+LDA: Fisher-type, Supervised
+
+
 Q: PCA and Granmo-Automata-Machine-Systems
 
 Two things stand out to me in my experience of the years with Data Science regarding PCA or principle component analysis: 
@@ -750,7 +775,55 @@ The point being: PCA is often fundimentally important in many ways, so how does 
 
 
 
+Without getting too much in the weeds, the comparison of PCA/LDA and Granmo is poigniently mixed. On the one hand the stark difference in approach in terms of Automata Machine model training highlights how distant (and incompatible) AI/ML approaches can be while arguably outlining a diverse super-set of problem-spaces and processes where comparable problems can be comparably approached by incomparably different means, which is interesting. 
+
+On the other hand both PCA and LDA could be useful tools for trying to narrow/prune larger (e.g. n-gram) feature sets.
+
+- PCA-based Feature Selection 
+- Subspace Leverage/Loading Analysis
+
+Perhaps depending on the effectiveness of this 'hybrid-pipeline' approach, this may argue for more of a separation (if optional) of feature-processing vs. final training.
+
+Results and data must be deferred to after various comparison tests, but it may be unlikely that a 'pure-vanilla-end-to-end-granmo-pipeline' to go from raw field-data bites through self data engineering to model training and operate in self-maintaining loops would be significantly more performant compared with an anything-goes-ensemble. Though there may be edge-cases, for example on extremely resource limited systems, where a Granmo-for-everything approach may be practical (or that may turn out to be usually more performant and practical). 
+
+Ah...but if you suspected that this rabbit hole might get stranger, you might have been correct enough. As often happens with STEM Timelines, there has been increasing interest (e.g. since 2012 (image net), 2017 (attention is all you need) and 2022 (chatGPT)) in finding fasters ways to do linear-algebra matrix-maths (e.g. without the super-slow floating point operations that computer hardware really does not like); at the same time the research for this largely pre-dates the 'rush for optimization.'
+ 
+In terms of keeping an eye on what is likely more practical and what is likely more speculative, part of what might come out of this is optimized ways to perform before-training operations (with the topic of making a hybrid bitwise Automata linear-algebra tensor system being... a bit of scope creep).
+
+We can make three semi-related sets of research-leads, including one more related branch of inquiry. Each of these are whole areas with many papers and techniques, I will only list a few for brevity. 
+
+1. Ways to Speed up & approximate floating point eigenvector operations:
+e.g.
+- Zou, H., Hastie, T. and Tibshirani, R. (2006) Sparse Principal Component Analysis. Journal of Computational and Graphical Statistics, 15, 265-286.
+
+
+2. Ways to make a bitwise boolean version of linear algebra over a boolean matrix (e.g. to explore the boolean bitwise work of Granmo mixed with boolean bitwise linear algebra, if without an clear practical use)
+e.g.
+- "A Generalized Linear Model for Principal Component Analysis of Binary Data"
+November 2002, Andrew Schein, Lawrence K. Saul, Lyle H. Ungar, University of Pennsylvania
+
+
+3. Empirical Practical Tricks established by Game-Makers for very quickly and economically approximating slow expensive calculations.
+e.g.
+- https://github.com/othieno/GPBB ,Graphics Programming Black Book by Michael Abrash. http://en.wikipedia.org/wiki/Michael_Abrash 1997
+
+- branchless, fixed-instruction Singular Value Decomposition, Aleka McAdams https://graphics.cs.wisc.edu/Papers/2011/MSTTS11/ 2011 
+
+
+Note:
+In the case of either before-training-feature-analysis/transformation or during training, this is not a situation where we 'need' to find a way to solve either every problem or any particular problem (e.g. a ship landing trajectory that must be solved). We only need to occasionally be able to find anything useful about anything (even a vague approximation), a much lower and much more empirical bar. In this use case, 'Greedy Approximation' is not a compromise or a tradeoff, it is a pure value optimization tool. Even a single useful find 1/100 looking at large pools of potential features, anything that works works.
+
+
 
 ..
 
 Notes Along with the myth of symbols There are other historically, common assumptions that should be re-examined The primacy of hygiene As his perhaps well dramatized by the computer science. From 1930 to 2030. To pick somewhat arbitrary numbers. While early computer science was very much being developed at a time when paradigmatic models of extremism security issues and all that in the 1930s exemplify There has been an extremely stubborn recalcitrance Whereby Ivory Tower recreational mathematicians see the world is not extending beyond their professional recreational sandbox (as can be directly noted by the writings of the creators of C and the Internet decades after the empirical demonstrations of security issues from the 1960s Dartmouth Internet Not to mention the 1930s and 40s And rather noticed publications by writers, such as Norbert wiener (for example, the human use of human beings) Prolonged pathological refusal to acknowledge the area of cyber security, perhaps mirrors, the pathological refusal to accept the area of stem (for example, burning or imprisoning scientists, instead of creating a science department and letting them play in their sandbox) My own specialization if I have such a thing is in trying to articulate a more generalized notion of stem hygiene and so I am going to naturally propose that this is within the scope of any non-self-destructive organization
+
+
+# Models in Functions that write code
+
+How strange is it to be thinking about the use of Granmo-Automaton-Machine-Systems as a 'modeling' process in code that produces improved code? I would argue that while the semanitics of that are strange (and sounds like an Exotic Science-Fiction that people have been talking about for probably a long time (see: "AI Narratives" https://academic.oup.com/book/36637 ) but which is largely a naive 'realist-symbolist' fantasy) that this describes something rather mundane that is under our noses and largely ubiquitous: compilers. Though 'mundane' may be the wrong term, perhaps "apparently mundane" . The C-to-pdp-11 compiler was probably mundane-ish, but LLVM and the compiler debates around C, Zig, Odin (and I'm not sure about Rust aiming to separate from LLVM in 2026) are, I would argue, raising various questions strangely close to this paper's topic: auditable deterministic fast lite understandable optimization 'models.' While it is surely beyond the scope of this paper to try to propose a specific Granmo-LLVM-Compliler (or anti-LLVM), the relationship between GOFAI (and is there a better example of GOFAI than a fancy compiler?) or other machine learning and the production of other functions and code, or perhaps more simply looking at 'modeling' as native to coding and code architecture, should sound more familiar. It may be a sign of the evolution of programming into such extreme niche ideologies that the concept seems so alien. 
+ 
+
+CppCon 2018: Matt Godbolt “The Bits Between the Bits: How We Get to main()”
+https://www.youtube.com/watch?v=dOfucXtyEsU
