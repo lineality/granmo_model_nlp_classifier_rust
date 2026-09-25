@@ -98,6 +98,10 @@ Possible factors, perhaps case by case are:
 5. Are there some cases where a larger model may be desirable if it is more performant (e.g. where explainability justifies the use)?
 
 
+Note: "mixed n-grams" or a "range of n-grams" should be a standard design choice.
+
+
+
 # Feature Discovery, General & Specific: Definitions and Computability
 
 To try to frame our problem-space (or what we do not know about our problem space) let's look at three example/case-study/items and a few adornments:
@@ -826,4 +830,29 @@ How strange is it to be thinking about the use of Granmo-Automaton-Machine-Syste
  
 
 CppCon 2018: Matt Godbolt “The Bits Between the Bits: How We Get to main()”
-https://www.youtube.com/watch?v=dOfucXtyEsU
+https://www.youtube.com/watch?v=dOfucXtyEsU 
+
+
+
+Note:
+In terms of optimized compute, note what  Gareth Morgan Thomas says about past, current, and anticipated use of areas such as sparse matrix optimization 
+
+"Advanced GPU Assembly Programming" by Gareth Morgan Thomas (note, a new edition so far comes out every few months (I got the first edition published in December of 2024, Sept 2026 is on the 3rd Edition" 
+
+
+---
+
+# Regular, Lossy-Regular, Approximate, & Strict Data-Models
+
+As another area to consider in this space where we try to juxtapose A. the raw data input unsupervised subsymbolic systems with B. the presumed tabular or (semi-tabular) structure of 'a table of previously vetted X (if not also y) values' (as with Bag-of-N-grams), and as we have invited both programing language level processes and model-training-on-data level processes to the same tea party, especially as we are asking questions about the organization and handling of features, clauses, votes, and data (raw and engineered), we should also at least try to look at 'Data Models' (for example as presented by 
+Hector Garcia-Molina, Jeffrey Ullman, & Jennifer Widom), especially as the landscape of relational, non-relational, and semi-relational databases is diversifying and making the question of data-models perhaps more 'a-la-carte' and less monolithic. 
+
+Perhaps directly related to the topic of before-training data transformations and pruning (e.g. with optimized PCA where float-linear-algebra-PCA is "just a bit" incompatible with the boolean-bitwise operations of Granmo-training and Granmo-inference) being more akin to the 'move fast and break everything' maths approach of Doom-Graphics-Rendering, where (to grossly oversimply) you advantageously try extreme shortcuts and just move on if that does not work (because there are no real life resources to do any more, and you don't need any more): 
+What do questions about phases and layers of required (and prohibited) and presumed abstractions of before-training raw data input, before-inference data, during-training transformations of data, and during-"inference" (if any) transformations of data, perhaps also specifically with the context of being empirically greedy and not needing to be an explained or reversible 'non-lossy' 'Data-Model.'
+
+How does the loose empirical (yet still regular) problem space of data-models differ from a most-constrained 'loss-less' class of data models that are probably usually considered to be (aside from the margins) all models?
+
+
+https://news.stanford.edu/stories/2019/12/hector-garcia-molina-influential-computer-scientist-database-expert-dies-65 
+
+https://www.amazon.com/Database-Systems-Complete-Book-2nd/dp/0131873253/
