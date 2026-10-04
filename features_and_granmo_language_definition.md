@@ -1,5 +1,61 @@
 features_and_granmo_language_definition
 
+~Defining procedural-modeling in an auditable physical-computation-space
+
+Physical computation: based on physical primitives: bits, clock cycles, ?memory cursors?, model-features, bit-languages,
+with sufficient equivalence to reified abstractions including types, "symbols", lifetimes, etc.
+
+
+
+TODO: 
+Is it possible to have e.g. python code to validate:
+1. the acceptable behaviors of accepted patterns
+2. the unacceptable behavior of banned partners
+3. the acceptable proxy behavior of sample proxies
+4. How costs are being described/projected: there should be able to be some kind of python-test/demo measure of cost...
+
+- TODO: integrate with https://github.com/lineality/operations_memory_state_manager 
+
+TODO: clarify/formalize the "Level-1 language-specification" 
+also note:
+A. 'standard features'  (default included)
+B. range of extended features (optionally expanded with a separate feature-discovery process)
+C. overall feature boundaries
+also:
+- describing or formalizing scope constraint with regards to compute cost (e.g. ways of bounding the possible 'too much treasure!' problem of having more granmo-compatible features
+
+
+
+(e.g. a tool-kit rather than a set of declared pronouncements)
+
+1. preliminary feature-expansion to test
+2. Do additional features help with model performance for:
+- NLP tasks
+- Other classification Tasks
+- byte-oriented tasks
+- stem-lema pre-processed oriented tasks
+
+3. If so, if not: How?
+What is learned from first set of tests?
+What is learned in theory?
+What is learned about new possible additions to help performance?
+Where is helping seen or not seen?
+- large models
+- tiny models
+- large token-lexicon
+- small token-lexicon
+- types of datasets/tasks, etc.
+Which features do/do-not help?
+(If so far no performance-improvement, do results point to other designs that might help?)
+
+Note: there are precedents in data-science (and pharma) for effective practices to be not understood.
+'Features & Types: Granmo-Automata-Machines & Assembler-Memory-Space'
+
+
+
+
+
+# Features & Types: Granmo-Automata-Machines & Assembler-Memory-Space
 # Feature Discovery & Language Definitions in Granmo-Automata-Machine-Systems
 2026 09 10-16th Geoffrey Gordon Ashbrook
 
@@ -468,20 +524,19 @@ Part of our scope question here is about how all of these might affect a particu
 
 
 ///////////////
-
-Q: the role of booleanization?
+Q: the role of binarization?
 
 
 Q: The role of 'cost'
 While 'cost' is often treated as something that pure theory does not need to include, I think it either should or can be considered more material in at least some contexts. Applied computer science, and science in general, is about finding and stacking optimization-gems. I do not think this lever-ratchet should be entirely excluded from theory or relegated to 'mere convenience'. 
 One possible analogy/argument may be that 'catalyzing reactions' and 'finding reactivity' plays a role in biochemistry and ecology beyond 'allowing systems to be faster' as if there could be a planet of 'slower but identical life' using inorganic chemistry.  
 
-If booleanization and linear bitwise operations allow for modular optimized functionality, even with tradeoffs, that might represent a significant ecosystem of interoperable functionality. 
+If binarization and linear bitwise operations allow for modular optimized functionality, even with tradeoffs, that might represent a significant ecosystem of interoperable functionality. 
 
 
-Q: Booleanization and feature-space-search...
-Q: Booleanization, granularity, and calculus
-Q: Booleanization and 'Gamification'
+Q: binarization and feature-space-search...
+Q: binarization, granularity, and calculus
+Q: binarization and 'Gamification'
 
 
 Question: In a (((learn-apply)*stack)*N) type model, would the whole process need to run in order to tell the first/lower levels if they were coming up with useful encoding/representation/gamifications?
@@ -498,12 +553,12 @@ Or is this a kind of 'back-propagation' question, of what tells the previous lay
 
 A few questions:
 
-It seems like booleanization is key in a few ways... i'm not sure what all the main landscape features are
+It seems like binarization is key in a few ways... i'm not sure what all the main landscape features are
 
-Q1. is it possible to somehow build a 'digital-stack' so that the booleanization is allowed to happen at or near the bottom (either bits or bytes) so that the 'forced-booleanization' (as with MNIST) does not need to happen.
-This may be like the byte-tokenizer, the option where having either 256 booleanized bytes represented or 512 byte-bits represented, there can be a kind of native raw-data-input approach.
+Q1. is it possible to somehow build a 'digital-stack' so that the binarization is allowed to happen at or near the bottom (either bits or bytes) so that the 'forced-binarization' (as with MNIST) does not need to happen.
+This may be like the byte-tokenizer, the option where having either 256 binarized bytes represented or 512 byte-bits represented, there can be a kind of native raw-data-input approach.
 
-In ascii-land, bytes are usually characters. The goal of this bottom-up-approach (or one version of this approach) would be to be more like a deep hidden layer neural network,  to make voted-on feature-discovering be unabstracted from "modeling/training" (if at some expense of interpretability, though perhaps each layer is still interpretable boolean?), so in a kind of end-to-end stack of Granmo-Automata-Machine-Systems, N layers would select what N-grams to use and possibly what expanded booleanized features to apply to them, etc. Or at least that's good for theory-discussion (and testing). 
+In ascii-land, bytes are usually characters. The goal of this bottom-up-approach (or one version of this approach) would be to be more like a deep hidden layer neural network,  to make voted-on feature-discovering be unabstracted from "modeling/training" (if at some expense of interpretability, though perhaps each layer is still interpretable boolean?), so in a kind of end-to-end stack of Granmo-Automata-Machine-Systems, N layers would select what N-grams to use and possibly what expanded binarized features to apply to them, etc. Or at least that's good for theory-discussion (and testing). 
 
 To some extent this is an ad-absurdum example that is mostly useful ~rhetorically or for framing and perspective, but I suspect not entirely only that. For example, for ASCII it is a ridiculous thought experiment to decompose characters into bytes and then into bits, why 'go backwards' when we clearly want those higher level features, especially if we are operating in an n-gram type way. But what if the scenario is NLP but not ASCII? What if it is Japanese that might be just hiragana, or just romaji, or just kanji, or the whole soup of everything. 
 
@@ -520,7 +575,7 @@ a vanilla BOW N-gram-length=2 is more or less like this, where you lazily or gre
 
 3. Some kind of stacked system, maybe analogous to non-ascii-language, where the 'feature' 'encoding' (if such is not a fictional reification cargo cult 'isomorphic mimicry' of the ASCII-BOW workflow) is done entirely by either a separated pipeline step or by layers within an 'end-to-end' stack of modular Granmo-Automata-Machine-System layers.
 
-E.g. Due to the formalities of 'booleanization', the search for 'how to preprocess' might be something that one Granmo-Automata-Machine-System can learn how to do, but that it would need to be done manually before feeding the original text into the next layer... or not. I am not sure about this set of aspects of Granmo-Automata-Machine-Systems and the roles of Booleanization.
+E.g. Due to the formalities of 'binarization', the search for 'how to preprocess' might be something that one Granmo-Automata-Machine-System can learn how to do, but that it would need to be done manually before feeding the original text into the next layer... or not. I am not sure about this set of aspects of Granmo-Automata-Machine-Systems and the roles of binarization.
 
 Or is the question somewhat one of cost and optimization, that something could be done using modular layers but it would be time-consuming?
 
@@ -544,10 +599,10 @@ Can or should there be better more general descriptions than perhaps overly mode
 Q2. Maybe something about a computation level model needing to operate on booleans (as perhaps a turing tape (either Turing complete or smaller) might need to translate into boolean operations?
 
 Q3. That the tradeoffs for modeling targets and types of modeling using a 'boolean first' approach should be more explicit, 
-A. simple boolean 'features' for a simple small 'flat' model (target features need to be booleanized)
+A. simple boolean 'features' for a simple small 'flat' model (target features need to be binarized)
 B. more elaborate strategies can make bucket-gradation systems
 C. a more configurable type of modular/distributable model system?
-D. possibly  the 'start low' the bits and bytes are already booleanized?
+D. possibly  the 'start low' the bits and bytes are already binarized?
 
 
 -> Better-Model -> Better-Data -> (loop)
@@ -556,7 +611,7 @@ D. possibly  the 'start low' the bits and bytes are already booleanized?
 
 
 # The Echo: 
-Regular Language definition for Booleanization
+Regular Language definition for binarization
 
 An intersection between
 - Regular Language Definition
@@ -632,6 +687,8 @@ Note: A Binarizer that is defined within these rules can process "documents" lar
 Machines with strictly constant space cannot always process unbounded input, for example if there is a need to store that entire input all at once. But a Deterministic Finite Automaton (DFA) can recognize any regular language in constant space; this is because the space complexity of a machine (like a Turing machine) is measured as a function of the input length n, and a DFA uses O(1) space. DFA memory (state(s)) is fixed and does not depend on changes in input size.
 
 Also production-application oriented: A Binarizer process can run on a byte stream indefinitely, with document boundaries delimiter bytes in-band. Transition on delimiter bytes can emit X and reset state, so an outer loop is non-terminating (and Holzmann's proof obligation to "prove it cannot exit" is possible).
+
+(Note: maybe issues with delimiter-byte(s), suggested: explore other ways)
 
 An arguably implicit requirement of Holzmann's rules is that any data being processed (such as a file or document or set of measurements, unlike a known to be fixed-in-size type value) if not already fixed in size must be able to be processed as (effectively) a stream of chunks: pre-allocating all memory precludes the horrible behavior of bulk loading and entire unknown-size input into (dynamic heap) memory. 
 
@@ -752,6 +809,20 @@ Illegal features should (perhaps all) have a regular proxy, and perhaps all of t
 | compression ratio | "n-gram recurs in window w"; "run-length ≥ r" |
 | digit fraction > 50% | `length ∈ bucket_b ∧ digit_count ≥ k_b`, one test per bucket |
 | TF-IDF(X) ≥ θ | `count(X) ≥ ⌈θ / IDF(X)⌉`, IDF(X)  as a constant |
+
+(TODO Double check, rephrase this)
+| Excluded | Reason | Proxy |
+|---|---|---|
+| Backreferences | Non-regular | None needed |
+| Nesting / balanced structure | Needs a stack | Bounded depth counter |
+| Unbounded or non-saturating counters | State grows | Saturate at k |
+| Ratios (digit fraction) | Two unbounded counts | Length-bucket × count grid |
+| Entropy, compression ratio | Unbounded counters or whole doc | Distinct-byte or run or window proxies |
+| Real-valued TF-IDF | Unbounded | `count ≥ ⌈θ/IDF⌉` |
+| Look-around | Allowed in theory, excluded for engine simplicity | Rewrite as order or within |
+
+**One gap in your proxy table:** a bucketed digit-fraction proxy is not equivalent to the ratio. It only approximates it, and the last (unbounded) length bucket must fall back to an absolute count.
+
 
 Note: In a 2025 paper Granmo et al process grey-scale MNIST using "thermometer encoding." There may be a not-publically-available Granmo-paper prior to 2025, but I cannot locate any such paper (publically available, or as described in a publically available abstract). Alongside the 2018 paper specifically deferring the grey-scale topic, these two papers exist:
 - "An All-digital 65-nm Tsetlin Machine Image Classification Accelerator with 8.6 nJ per MNIST Frame at 60.3k Frames per Second" Jan 2025, by Svein Anders Tunheim, Ole-Christoffer Granmo, et al
@@ -881,7 +952,7 @@ Part of the memory-growth-test is how the goal of the feature is expressed, name
 
 ## Questions:
 - Single Layer vs. Multi-Layer Granmo-Automata-Machine-Systems
-- Rules & Effects of Booleanization
+- Rules & Effects of binarization
 - "End to end" feature discovery in A. multi-step/phase process, B. contained in a single (leveled) model
 - "Externalization Layers"
 - Forward and backward propagation given pairs of 'representation' and 'externalization' layers.
@@ -930,7 +1001,7 @@ Overlap/Echo
 
 
 Possible equivalance (again, not interesting in chasing down hard equivalance):
-- Power of 10 -> booleanizer, ~equivalent to regular-language restrictions
+- Power of 10 -> binarizer, ~equivalent to regular-language restrictions
 - 
 - 
 
@@ -952,7 +1023,7 @@ Side question:
 
 ..
 
-"Flat vs. Representation": Chicken & Egg problem for pre-booleanized inputs to a 'Flat' process. 
+"Flat vs. Representation": Chicken & Egg problem for pre-binarized inputs to a 'Flat' process. 
 
 
 note: most of these changes are at the flat-level...
@@ -961,9 +1032,9 @@ note: most of these changes are at the flat-level...
 - But this set of restrictions expands the what the vanilla-flat-2018 search space is by more clearly defining the rule-space... I think?
 
 ...
-- booleanization features... of 'tokenized' byte-data? (word-n-grams not byte n-grams)
+- binarization features... of 'tokenized' byte-data? (word-n-grams not byte n-grams)
 
-1. flat level rules: rules for booleanizable relationships? (subest of regex?)
+1. flat level rules: rules for binarizable relationships? (subest of regex?)
 2. rules for output of one layer that allows it to be input to another layer...?
 
 (breaking analogue data into tabular X columns?)... and comparing them against the original? e.g. n-gram A & n-gram B
@@ -991,7 +1062,7 @@ Regular-ness is... part of this set of definitions but still too broad?
 - Regular
 - Single Pass
 - bounded? 
-- Bitwise Operations/booleanized?
+- Bitwise Operations/binarized?
 
 
 
@@ -1129,7 +1200,7 @@ In the case of either before-training-feature-analysis/transformation or during 
 
 ..
 
-Notes Along with the myth of symbols There are other historically, common assumptions that should be re-examined The primacy of hygiene As is perhaps well dramatized by the computer science. From 1930 to 2030. To pick somewhat arbitrary numbers. While early computer science was very much being developed at a time when paradigmatic models of extremism security issues and all that in the 1930s exemplify There has been an extremely stubborn recalcitrance Whereby Ivory Tower recreational mathematicians see the world is not extending beyond their professional recreational sandbox (as can be directly noted by the writings of the creators of C and the Internet decades after the empirical demonstrations of security issues from the 1960s Dartmouth Internet Not to mention the 1930s and 40s And rather noticed publications by writers, such as Norbert wiener (for example, the human use of human beings) Prolonged pathological refusal to acknowledge the area of cyber security, perhaps mirrors, the pathological refusal to accept the area of stem (for example, burning or imprisoning scientists, instead of creating a science department and letting them play in their sandbox) My own specialization if I have such a thing is in trying to articulate a more generalized notion of stem hygiene and so I am going to naturally propose that this is within the scope of any non-self-destructive organization
+Notes: Along with the myth of symbols there are other historically common assumptions that should be re-examined. The primacy of hygiene is perhaps well dramatized by computer science from 1930 to 2030 (to pick somewhat arbitrary numbers). While early computer science was very much being developed at a time when paradigmatic models of extremism security issues and all that the 1930s exemplify there has been an extremely stubborn recalcitrance whereby Ivory Tower recreational mathematicians see the world as not extending beyond their professional recreational sandbox (as can be directly noted by the writings of the creators of C and the Internet decades after the empirical demonstrations of security issues from the 1960s Dartmouth Internet Not to mention the 1930s and 40s) and rather notable publications by writers, such as Norbert Wiener (for example in "The human use of human beings" (which has a probably out of print less-redacted first edition) ) prolonged pathological refusal to acknowledge the area of cyber security, perhaps mirrors, the pathological refusal to accept the area of stem (for example, burning or imprisoning scientists, instead of creating a science department and letting them play in their sandbox). My own specialization if I have such a thing is in trying to articulate a more generalized notion of stem hygiene and so I am going to naturally propose that this is within the scope of any non-self-destructive organization.
 
 
 # Models in Functions that write code
@@ -1165,4 +1236,424 @@ How does the loose empirical (yet still regular) problem space of data-models di
 
 - https://www.amazon.com/Database-Systems-Complete-Book-2nd/dp/0131873253/ 
 
-- https://github.com/AnwarDebes/DiTM/blob/main/README.md
+- https://github.com/AnwarDebes/DiTM/blob/main/README.md 
+---
+
+Q: Is a Granmo-Language a subset of a regular language? 
+
+
+
+---
+
+# Properties of Language-Subsets and "Text-Book Line-Items"
+
+Let's review the properties of our bonzai Granmo-Language (sub-regular-language?), with regards to trade-offs in meta-descriptiveness vs. expressiveness
+
+E.g. While cowboy-c may be primarily concerned with doing as much as possible (expressiveness), here we are concerned with clearly defining a smaller subset of regular languages where (either for binarization related behavior and or for memory-static-analysis https://github.com/lineality/operations_memory_state_manager ) expression is specifically stylized, both of which may relate to optimized/approximated/binarized forms of linear algebra (either as data-science models or as optimized cpu/gpu data-processes for a program).
+
+
+Also, where it may matter, the 'tokens' of this particular sub-regular language are the 0-255 byte variations, in case that fixed definition affects any other properties and behaviors.
+
+
+
+
+https://www.amazon.com/Computability-Complexity-Languages-Second-Fundamentals/dp/B010WFBN2Q/ 
+"Computability, Complexity, and Languages: Fundamentals of Theoretical Computer Science (Computer Science and Scientific Computing) 2nd edition" by Martin Davis, Ron Sigal, Elaine J.Weyuker (1994)
+
+(TODO)
+Chapter 9: Regular Languages
+- Closure Properties
+- Kleens's Theorem
+- Pumping Lemas
+- Myhill-Nerode Theorem
+
+
+A note on context-free and context-sensitive languages.
+- TODO
+
+The term 'Macro' in how it is used in Davis-2nd-ed, vs. how it is used in a c context: ?
+
+
+'symbols' languages, letters words:
+
+bit-byte definition,
+
+symbols as operands is a long-held confusion to be abandoned here
+
+'symbols' as operations/operators/procedures/sub-routines, is not an ideal term; a reification in search of a problem to hide
+
+
+'alphabets, strings, words' (davis et al): can these be cleanly translated into bits-bytes? (preferably with the additional reifications removed)
+
+
+
+
+Q: The term 'function' as used in Davis et al?
+- How does this relate to ...other definitions?
+
+(for context: see 'Proto-Type' project)
+
+
+---
+
+Brainstorm idea: 
+structuring a memory-space as a (negative) proof?
+
+
+
+---
+
+state externalization
+
+---
+
+Appendix 1: Cost Formula Test Results
+```
+============================================================================================================================================================
+STREAMING FEATURE STATE-COST FORMULAS: MEASURED (DFA MINIMIZATION) VS CLOSED FORM
+============================================================================================================================================================
+| Primitive                      | Parameters                         | Formula St. | Reach. St. |  Min. St. | Mono Bits | Meas. Bits | Field Bits |   Inputs | Status |
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| arbitrary_window_w             | S=2,w=1                            |           2 |          2 |         2 |         1 |          1 |          1 |       15 |   PASS |
+| arbitrary_window_w             | S=2,w=2                            |           4 |          4 |         4 |         2 |          2 |          2 |       31 |   PASS |
+| arbitrary_window_w             | S=2,w=3                            |           8 |          8 |         8 |         3 |          3 |          3 |       63 |   PASS |
+| arbitrary_window_w             | S=2,w=4                            |          16 |         16 |        16 |         4 |          4 |          4 |      127 |   PASS |
+| arbitrary_window_w             | S=3,w=1                            |           3 |          3 |         3 |         2 |          2 |          2 |       40 |   PASS |
+| arbitrary_window_w             | S=3,w=2                            |           9 |          9 |         9 |         4 |          4 |          4 |      121 |   PASS |
+| arbitrary_window_w             | S=3,w=3                            |          27 |         27 |        27 |         5 |          5 |          6 |      364 |   PASS |
+| arbitrary_window_w             | S=256,w=1                          |         256 |        256 |       256 |         8 |          8 |          8 |    65793 |   PASS |
+| saturating_count_k             | S=2,k=1                            |           2 |          2 |         2 |         1 |          1 |          1 |       15 |   PASS |
+| saturating_count_k             | S=2,k=2                            |           3 |          3 |         3 |         2 |          2 |          2 |       31 |   PASS |
+| saturating_count_k             | S=2,k=3                            |           4 |          4 |         4 |         2 |          2 |          2 |       63 |   PASS |
+| saturating_count_k             | S=2,k=4                            |           5 |          5 |         5 |         3 |          3 |          3 |      127 |   PASS |
+| saturating_count_k             | S=2,k=7                            |           8 |          8 |         8 |         3 |          3 |          3 |     1023 |   PASS |
+| saturating_count_k             | S=2,k=8                            |           9 |          9 |         9 |         4 |          4 |          4 |     2047 |   PASS |
+| saturating_count_k             | S=2,k=15                           |          16 |         16 |        16 |         4 |          4 |          4 |     8191 |   PASS |
+| saturating_count_k             | S=2,k=16                           |          17 |         17 |        17 |         5 |          5 |          5 |     8191 |   PASS |
+| run_specific_symbol_r          | S=2,r=1                            |           2 |          2 |         2 |         1 |          1 |          1 |       31 |   PASS |
+| run_specific_symbol_r          | S=2,r=2                            |           3 |          3 |         3 |         2 |          2 |          2 |       63 |   PASS |
+| run_specific_symbol_r          | S=2,r=3                            |           4 |          4 |         4 |         2 |          2 |          2 |      127 |   PASS |
+| run_specific_symbol_r          | S=2,r=4                            |           5 |          5 |         5 |         3 |          3 |          3 |      255 |   PASS |
+| run_specific_symbol_r          | S=2,r=7                            |           8 |          8 |         8 |         3 |          3 |          3 |     2047 |   PASS |
+| run_specific_symbol_r          | S=2,r=8                            |           9 |          9 |         9 |         4 |          4 |          4 |     4095 |   PASS |
+| run_specific_symbol_r          | S=2,r=15                           |          16 |         16 |        16 |         4 |          4 |          4 |     8191 |   PASS |
+| run_specific_symbol_r          | S=2,r=16                           |          17 |         17 |        17 |         5 |          5 |          5 |     8191 |   PASS |
+| run_specific_symbol_r          | S=2,r=17                           |          18 |         18 |        18 |         5 |          5 |          5 |     8191 |   PASS |
+| saturating_multi_symbol_count  | S=3,P=01,k=1,nonoverlap            |           3 |          3 |         3 |         2 |          2 |          2 |     9841 |   PASS |
+| saturating_multi_symbol_count  | S=3,P=01,k=2,nonoverlap            |           5 |          5 |         5 |         3 |          3 |          3 |     9841 |   PASS |
+| saturating_multi_symbol_count  | S=3,P=01,k=3,nonoverlap            |           7 |          7 |         7 |         3 |          3 |          3 |     9841 |   PASS |
+| saturating_multi_symbol_count  | S=3,P=01,k=1,overlap               |           3 |          3 |         3 |         2 |          2 |          2 |     9841 |   PASS |
+| saturating_multi_symbol_count  | S=3,P=01,k=2,overlap               |           5 |          5 |         5 |         3 |          3 |          3 |     9841 |   PASS |
+| saturating_multi_symbol_count  | S=3,P=01,k=3,overlap               |           7 |          7 |         7 |         3 |          3 |          3 |     9841 |   PASS |
+| saturating_multi_symbol_count  | S=4,P=012,k=1,nonoverlap           |           4 |          4 |         4 |         2 |          2 |          3 |    21845 |   PASS |
+| saturating_multi_symbol_count  | S=4,P=012,k=2,nonoverlap           |           7 |          7 |         7 |         3 |          3 |          4 |    21845 |   PASS |
+| saturating_multi_symbol_count  | S=4,P=012,k=3,nonoverlap           |          10 |         10 |        10 |         4 |          4 |          4 |    21845 |   PASS |
+| saturating_multi_symbol_count  | S=4,P=012,k=1,overlap              |           4 |          4 |         4 |         2 |          2 |          3 |    21845 |   PASS |
+| saturating_multi_symbol_count  | S=4,P=012,k=2,overlap              |           7 |          7 |         7 |         3 |          3 |          4 |    21845 |   PASS |
+| saturating_multi_symbol_count  | S=4,P=012,k=3,overlap              |          10 |         10 |        10 |         4 |          4 |          4 |    21845 |   PASS |
+| saturating_multi_symbol_count  | S=3,P=00,k=1,nonoverlap            |           3 |          3 |         3 |         2 |          2 |          2 |     9841 |   PASS |
+| saturating_multi_symbol_count  | S=3,P=00,k=2,nonoverlap            |           5 |          5 |         5 |         3 |          3 |          3 |     9841 |   PASS |
+| saturating_multi_symbol_count  | S=3,P=00,k=3,nonoverlap            |           7 |          7 |         7 |         3 |          3 |          3 |     9841 |   PASS |
+| saturating_multi_symbol_count  | S=3,P=00,k=1,overlap               |           3 |          3 |         3 |         2 |          2 |          2 |     9841 |   PASS |
+| saturating_multi_symbol_count  | S=3,P=00,k=2,overlap               |           5 |          5 |         5 |         3 |          3 |          3 |     9841 |   PASS |
+| saturating_multi_symbol_count  | S=3,P=00,k=3,overlap               |           7 |          7 |         7 |         3 |          3 |          3 |     9841 |   PASS |
+| saturating_multi_symbol_count  | S=3,P=010,k=1,nonoverlap           |           4 |          4 |         4 |         2 |          2 |          3 |     9841 |   PASS |
+| saturating_multi_symbol_count  | S=3,P=010,k=2,nonoverlap           |           7 |          7 |         7 |         3 |          3 |          4 |     9841 |   PASS |
+| saturating_multi_symbol_count  | S=3,P=010,k=3,nonoverlap           |          10 |         10 |        10 |         4 |          4 |          4 |     9841 |   PASS |
+| saturating_multi_symbol_count  | S=3,P=010,k=1,overlap              |           4 |          4 |         4 |         2 |          2 |          3 |     9841 |   PASS |
+| saturating_multi_symbol_count  | S=3,P=010,k=2,overlap              |           7 |          7 |         7 |         3 |          3 |          4 |     9841 |   PASS |
+| saturating_multi_symbol_count  | S=3,P=010,k=3,overlap              |          10 |         10 |        10 |         4 |          4 |          4 |     9841 |   PASS |
+| run_any_symbol_r               | S=2,r=1                            |           2 |          2 |         2 |         1 |          1 |          2 |       31 |   PASS |
+| run_any_symbol_r               | S=2,r=2                            |           4 |          4 |         4 |         2 |          2 |          3 |       63 |   PASS |
+| run_any_symbol_r               | S=2,r=3                            |           6 |          6 |         6 |         3 |          3 |          3 |      127 |   PASS |
+| run_any_symbol_r               | S=2,r=4                            |           8 |          8 |         8 |         3 |          3 |          4 |      255 |   PASS |
+| run_any_symbol_r               | S=2,r=5                            |          10 |         10 |        10 |         4 |          4 |          4 |      511 |   PASS |
+| run_any_symbol_r               | S=2,r=6                            |          12 |         12 |        12 |         4 |          4 |          4 |     1023 |   PASS |
+| run_any_symbol_r               | S=2,r=7                            |          14 |         14 |        14 |         4 |          4 |          4 |     2047 |   PASS |
+| run_any_symbol_r               | S=2,r=8                            |          16 |         16 |        16 |         4 |          4 |          5 |     4095 |   PASS |
+| run_any_symbol_r               | S=3,r=1                            |           2 |          2 |         2 |         1 |          1 |          3 |      121 |   PASS |
+| run_any_symbol_r               | S=3,r=2                            |           5 |          5 |         5 |         3 |          3 |          4 |      364 |   PASS |
+| run_any_symbol_r               | S=3,r=3                            |           8 |          8 |         8 |         3 |          3 |          4 |     1093 |   PASS |
+| run_any_symbol_r               | S=3,r=4                            |          11 |         11 |        11 |         4 |          4 |          5 |     3280 |   PASS |
+| run_any_symbol_r               | S=256,r=1                          |           2 |          2 |         2 |         1 |          1 |          9 |    65793 |   PASS |
+| run_any_symbol_r               | S=256,r=2                          |         258 |        258 |       258 |         9 |          9 |         10 |    65793 |   PASS |
+| run_any_symbol_r               | S=256,r=3                          |         514 |        514 |       514 |        10 |         10 |         10 |    65793 |   PASS |
+| run_any_symbol_r               | S=256,r=4                          |         770 |        770 |       770 |        10 |         10 |         11 |    65793 |   PASS |
+| a_anywhere_before_b            | S=3                                |           3 |          3 |         3 |         2 |          2 |          2 |     9841 |   PASS |
+| ordered_token_sequence         | S=3,T=0                            |           2 |          2 |         2 |         1 |          1 |          1 |     9841 |   PASS |
+| ordered_token_sequence         | S=3,T=0|1                          |           3 |          3 |         3 |         2 |          2 |          2 |     9841 |   PASS |
+| ordered_token_sequence         | S=3,T=0|1|0                        |           4 |          4 |         4 |         2 |          2 |          2 |     9841 |   PASS |
+| ordered_token_sequence         | S=3,T=0|1|2|1                      |           5 |          5 |         5 |         3 |          3 |          3 |     9841 |   PASS |
+| ordered_token_sequence         | S=3,T=01|2                         |           4 |          4 |         4 |         2 |          2 |          3 |     9841 |   PASS |
+| ordered_token_sequence         | S=3,T=01|10                        |           5 |          5 |         5 |         3 |          3 |          3 |     9841 |   PASS |
+| ordered_token_sequence         | S=2,T=00|1                         |           4 |          4 |         4 |         2 |          2 |          3 |     2047 |   PASS |
+| ordered_token_sequence         | S=4,T=01|23|01                     |           7 |          7 |         7 |         3 |          3 |          3 |    21845 |   PASS |
+| b_within_w_after_a             | S=3,w=1                            |           3 |          3 |         3 |         2 |          2 |          2 |       40 |   PASS |
+| b_within_w_after_a             | S=3,w=2                            |           4 |          4 |         4 |         2 |          2 |          3 |      121 |   PASS |
+| b_within_w_after_a             | S=3,w=3                            |           5 |          5 |         5 |         3 |          3 |          3 |      364 |   PASS |
+| b_within_w_after_a             | S=3,w=4                            |           6 |          6 |         6 |         3 |          3 |          4 |     1093 |   PASS |
+| b_within_w_after_a             | S=3,w=7                            |           9 |          9 |         9 |         4 |          4 |          4 |    29524 |   PASS |
+| b_within_w_after_a             | S=3,w=8                            |          10 |         10 |        10 |         4 |          4 |          5 |    29524 |   PASS |
+| b_within_w_after_a             | S=3,w=15                           |          17 |         17 |        17 |         5 |          5 |          5 |    29524 |   PASS |
+| b_within_w_after_a             | S=3,w=16                           |          18 |         18 |        18 |         5 |          5 |          6 |    29524 |   PASS |
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+--- Pinned boundary measurements (hard-coded, formula-independent) ---
+  [PASS] specific run r=7 -> 8 states, 3 bits (measured 8 states, 3 bits)
+  [PASS] specific run r=8 -> 9 states, 4 bits (measured 9 states, 4 bits)
+  [PASS] window w=6      -> 8 states, 3 bits (measured 8 states, 3 bits)
+  [PASS] window w=7      -> 9 states, 4 bits (measured 9 states, 4 bits)
+  [PASS] saturating k=7  -> 8 states, 3 bits (measured 8 states, 3 bits)
+  [PASS] any-run S=256 r=2 -> 258 states, 9 bits (measured 258 states, 9 bits)
+============================================================================================================================================================
+ALL FORMULAS CONFIRMED BY MEASUREMENT. ZERO DEFECTS.
+============================================================================================================================================================
+
+====================================================================================================
+STAGE B: BOUNDARY WITNESS TESTS (hand-built inputs at threshold-1, threshold, threshold+1)
+====================================================================================================
+| Primitive                      | Parameters                         | Witnesses | Status |
+--------------------------------------------------------------------------------------------
+| run_specific_symbol_r          | S=2,r=1                            |         6 |   PASS |
+| run_specific_symbol_r          | S=2,r=2                            |         6 |   PASS |
+| run_specific_symbol_r          | S=2,r=3                            |         6 |   PASS |
+| run_specific_symbol_r          | S=2,r=7                            |         6 |   PASS |
+| run_specific_symbol_r          | S=2,r=8                            |         6 |   PASS |
+| run_specific_symbol_r          | S=2,r=15                           |         6 |   PASS |
+| run_specific_symbol_r          | S=2,r=16                           |         6 |   PASS |
+| run_specific_symbol_r          | S=2,r=17                           |         6 |   PASS |
+| run_specific_symbol_r          | S=2,r=31                           |         6 |   PASS |
+| run_specific_symbol_r          | S=2,r=32                           |         6 |   PASS |
+| run_specific_symbol_r          | S=2,r=33                           |         6 |   PASS |
+| saturating_count_k             | S=2,k=1                            |         8 |   PASS |
+| saturating_count_k             | S=2,k=2                            |        10 |   PASS |
+| saturating_count_k             | S=2,k=7                            |        10 |   PASS |
+| saturating_count_k             | S=2,k=8                            |        10 |   PASS |
+| saturating_count_k             | S=2,k=15                           |        10 |   PASS |
+| saturating_count_k             | S=2,k=16                           |        10 |   PASS |
+| saturating_count_k             | S=2,k=31                           |        10 |   PASS |
+| saturating_count_k             | S=2,k=32                           |        10 |   PASS |
+| b_within_w_after_a             | S=3,w=1                            |         8 |   PASS |
+| b_within_w_after_a             | S=3,w=2                            |         9 |   PASS |
+| b_within_w_after_a             | S=3,w=3                            |        10 |   PASS |
+| b_within_w_after_a             | S=3,w=7                            |        14 |   PASS |
+| b_within_w_after_a             | S=3,w=8                            |        15 |   PASS |
+| b_within_w_after_a             | S=3,w=15                           |        22 |   PASS |
+| b_within_w_after_a             | S=3,w=16                           |        23 |   PASS |
+| b_within_w_after_a             | S=3,w=31                           |        38 |   PASS |
+| b_within_w_after_a             | S=3,w=32                           |        39 |   PASS |
+| run_any_symbol_r               | S=2,r=1                            |         7 |   PASS |
+| run_any_symbol_r               | S=2,r=2                            |         7 |   PASS |
+| run_any_symbol_r               | S=2,r=3                            |         7 |   PASS |
+| run_any_symbol_r               | S=2,r=4                            |         7 |   PASS |
+| run_any_symbol_r               | S=2,r=7                            |         7 |   PASS |
+| run_any_symbol_r               | S=2,r=8                            |         7 |   PASS |
+| run_any_symbol_r               | S=2,r=15                           |         7 |   PASS |
+| run_any_symbol_r               | S=2,r=16                           |         7 |   PASS |
+| run_any_symbol_r               | S=2,r=17                           |         7 |   PASS |
+| run_any_symbol_r               | S=256,r=1                          |        11 |   PASS |
+| run_any_symbol_r               | S=256,r=2                          |        11 |   PASS |
+| run_any_symbol_r               | S=256,r=3                          |        11 |   PASS |
+| run_any_symbol_r               | S=256,r=4                          |        11 |   PASS |
+| run_any_symbol_r               | S=256,r=7                          |        11 |   PASS |
+| run_any_symbol_r               | S=256,r=8                          |        11 |   PASS |
+| run_any_symbol_r               | S=256,r=15                         |        11 |   PASS |
+| run_any_symbol_r               | S=256,r=16                         |        11 |   PASS |
+| run_any_symbol_r               | S=256,r=17                         |        11 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=01,k=1,nonoverlap           |         6 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=01,k=1,overlap              |         6 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=01,k=2,nonoverlap           |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=01,k=2,overlap              |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=01,k=3,nonoverlap           |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=01,k=3,overlap              |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=01,k=7,nonoverlap           |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=01,k=7,overlap              |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=01,k=8,nonoverlap           |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=01,k=8,overlap              |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=012,k=1,nonoverlap          |         6 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=012,k=1,overlap             |         6 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=012,k=2,nonoverlap          |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=012,k=2,overlap             |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=012,k=3,nonoverlap          |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=012,k=3,overlap             |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=012,k=7,nonoverlap          |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=012,k=7,overlap             |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=012,k=8,nonoverlap          |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=012,k=8,overlap             |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00,k=1,nonoverlap           |         6 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00,k=1,overlap              |         6 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00,k=2,nonoverlap           |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00,k=2,overlap              |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00,k=3,nonoverlap           |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00,k=3,overlap              |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00,k=7,nonoverlap           |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00,k=7,overlap              |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00,k=8,nonoverlap           |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00,k=8,overlap              |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=010,k=1,nonoverlap          |         6 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=010,k=1,overlap             |         6 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=010,k=2,nonoverlap          |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=010,k=2,overlap             |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=010,k=3,nonoverlap          |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=010,k=3,overlap             |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=010,k=7,nonoverlap          |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=010,k=7,overlap             |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=010,k=8,nonoverlap          |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=010,k=8,overlap             |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00100,k=1,nonoverlap        |         6 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00100,k=1,overlap           |         6 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00100,k=2,nonoverlap        |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00100,k=2,overlap           |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00100,k=3,nonoverlap        |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00100,k=3,overlap           |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00100,k=7,nonoverlap        |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00100,k=7,overlap           |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00100,k=8,nonoverlap        |         8 |   PASS |
+| saturating_multi_symbol_count  | S=10,P=00100,k=8,overlap           |         8 |   PASS |
+| ordered_token_sequence         | S=10,T=0|1|0                       |         5 |   PASS |
+| ordered_token_sequence         | S=10,T=01|23|01                    |         6 |   PASS |
+| ordered_token_sequence         | S=10,T=00|00|00                    |         6 |   PASS |
+| ordered_token_sequence         | S=10,T=01234|56                    |         6 |   PASS |
+| ordered_token_sequence         | S=10,T=0|1|2|3|4|5|6|7             |         5 |   PASS |
+| ordered_token_sequence         | S=10,T=0|1|2|3|4|5|6|7|0|1|2|3|4|5 |         5 |   PASS |
+--------------------------------------------------------------------------------------------
+Stage B result: 0 failed case(s).
+
+====================================================================================================
+STAGE C: FALSIFICATION SWEEPS (searching for counterexamples to the formulas)
+====================================================================================================
+
+--- C1: pattern-counter exactness sweep (all binary patterns, length 1..5) ---
+  Instances checked: 744 (filler symbol available: 432, not available: 312); exceptions: 0
+
+--- C2: ordered-token-sequence exactness sweep (all binary token sequences, <=3 tokens, length<=3) ---
+  Instances checked: 2954; exceptions: 0
+
+--- C3: additional alphabet sizes (S = 3, 4, 5) for window and any-run formulas ---
+| Primitive              | Parameters     | Formula St. | Min. St. | Meas. Bits | Field Bits |  Inputs | Status |
+-----------------------------------------------------------------------------------------------------------------
+| b_within_w_after_a     | S=3,w=1        |           3 |        3 |          2 |          2 |      40 |   PASS |
+| b_within_w_after_a     | S=3,w=2        |           4 |        4 |          2 |          3 |     121 |   PASS |
+| b_within_w_after_a     | S=3,w=3        |           5 |        5 |          3 |          3 |     364 |   PASS |
+| b_within_w_after_a     | S=3,w=4        |           6 |        6 |          3 |          4 |    1093 |   PASS |
+| b_within_w_after_a     | S=3,w=5        |           7 |        7 |          3 |          4 |    3280 |   PASS |
+| b_within_w_after_a     | S=3,w=6        |           8 |        8 |          3 |          4 |    9841 |   PASS |
+| b_within_w_after_a     | S=3,w=7        |           9 |        9 |          4 |          4 |   29524 |   PASS |
+| b_within_w_after_a     | S=3,w=8        |          10 |       10 |          4 |          5 |   29524 |   PASS |
+| b_within_w_after_a     | S=3,w=9        |          11 |       11 |          4 |          5 |   29524 |   PASS |
+| b_within_w_after_a     | S=4,w=1        |           3 |        3 |          2 |          2 |      85 |   PASS |
+| b_within_w_after_a     | S=4,w=2        |           4 |        4 |          2 |          3 |     341 |   PASS |
+| b_within_w_after_a     | S=4,w=3        |           5 |        5 |          3 |          3 |    1365 |   PASS |
+| b_within_w_after_a     | S=4,w=4        |           6 |        6 |          3 |          4 |    5461 |   PASS |
+| b_within_w_after_a     | S=4,w=5        |           7 |        7 |          3 |          4 |   21845 |   PASS |
+| b_within_w_after_a     | S=4,w=6        |           8 |        8 |          3 |          4 |   21845 |   PASS |
+| b_within_w_after_a     | S=4,w=7        |           9 |        9 |          4 |          4 |   21845 |   PASS |
+| b_within_w_after_a     | S=4,w=8        |          10 |       10 |          4 |          5 |   21845 |   PASS |
+| b_within_w_after_a     | S=4,w=9        |          11 |       11 |          4 |          5 |   21845 |   PASS |
+| b_within_w_after_a     | S=5,w=1        |           3 |        3 |          2 |          2 |     156 |   PASS |
+| b_within_w_after_a     | S=5,w=2        |           4 |        4 |          2 |          3 |     781 |   PASS |
+| b_within_w_after_a     | S=5,w=3        |           5 |        5 |          3 |          3 |    3906 |   PASS |
+| b_within_w_after_a     | S=5,w=4        |           6 |        6 |          3 |          4 |   19531 |   PASS |
+| b_within_w_after_a     | S=5,w=5        |           7 |        7 |          3 |          4 |   19531 |   PASS |
+| b_within_w_after_a     | S=5,w=6        |           8 |        8 |          3 |          4 |   19531 |   PASS |
+| b_within_w_after_a     | S=5,w=7        |           9 |        9 |          4 |          4 |   19531 |   PASS |
+| b_within_w_after_a     | S=5,w=8        |          10 |       10 |          4 |          5 |   19531 |   PASS |
+| b_within_w_after_a     | S=5,w=9        |          11 |       11 |          4 |          5 |   19531 |   PASS |
+| run_any_symbol_r       | S=4,r=1        |           2 |        2 |          1 |          3 |     341 |   PASS |
+| run_any_symbol_r       | S=4,r=2        |           6 |        6 |          3 |          4 |    1365 |   PASS |
+| run_any_symbol_r       | S=4,r=3        |          10 |       10 |          4 |          4 |    5461 |   PASS |
+| run_any_symbol_r       | S=4,r=4        |          14 |       14 |          4 |          5 |    5461 |   PASS |
+| run_any_symbol_r       | S=4,r=5        |          18 |       18 |          5 |          5 |    5461 |   PASS |
+| run_any_symbol_r       | S=5,r=1        |           2 |        2 |          1 |          4 |     781 |   PASS |
+| run_any_symbol_r       | S=5,r=2        |           7 |        7 |          3 |          5 |    3906 |   PASS |
+| run_any_symbol_r       | S=5,r=3        |          12 |       12 |          4 |          5 |    3906 |   PASS |
+| run_any_symbol_r       | S=5,r=4        |          17 |       17 |          5 |          6 |    3906 |   PASS |
+| run_any_symbol_r       | S=5,r=5        |          22 |       22 |          5 |          6 |    3906 |   PASS |
+-----------------------------------------------------------------------------------------------------------------
+
+Stage C summary: C1=OK, C2=OK, C3=OK
+
+====================================================================================================
+SECTION 11: PAPER-CLAIM TESTS
+====================================================================================================
+
+--- 11A: candidate-feature count formulas (enumerated) ---
+|   V |  k |  enum V^k |    V**k | enum distinct |  P(V,k) | Status |
+|   2 |  1 |         2 |       2 |             2 |       2 |   PASS |
+|   2 |  2 |         4 |       4 |             2 |       2 |   PASS |
+|   2 |  3 |         8 |       8 |             0 |       0 |   PASS |
+|   2 |  4 |        16 |      16 |             0 |       0 |   PASS |
+|   3 |  1 |         3 |       3 |             3 |       3 |   PASS |
+|   3 |  2 |         9 |       9 |             6 |       6 |   PASS |
+|   3 |  3 |        27 |      27 |             6 |       6 |   PASS |
+|   3 |  4 |        81 |      81 |             0 |       0 |   PASS |
+|   4 |  1 |         4 |       4 |             4 |       4 |   PASS |
+|   4 |  2 |        16 |      16 |            12 |      12 |   PASS |
+|   4 |  3 |        64 |      64 |            24 |      24 |   PASS |
+|   4 |  4 |       256 |     256 |            24 |      24 |   PASS |
+|   5 |  1 |         5 |       5 |             5 |       5 |   PASS |
+|   5 |  2 |        25 |      25 |            20 |      20 |   PASS |
+|   5 |  3 |       125 |     125 |            60 |      60 |   PASS |
+|   5 |  4 |       625 |     625 |           120 |     120 |   PASS |
+  n-gram range sums: checked V=2..4, ranges (1,3) and (2,4)
+  A-before-B plus B-before-A: 2*C(V,2) == V*(V-1) == P(V,2) checked V=2..6
+  Distinct-language check (candidate count == distinct features):
+    V=3 k=1: 3 distinct languages vs V**k=3 -> PASS
+    V=3 k=2: 9 distinct languages vs V**k=9 -> PASS
+    V=3 k=3: 27 distinct languages vs V**k=27 -> PASS
+    V=4 k=2: 16 distinct languages vs V**k=16 -> PASS
+  Budget illustration (FORMULA ONLY, not enumerated; V = vocabulary after top-DF filter):
+    V=  256: pairs=      65,280 triples=      16,581,120
+    V= 1000: pairs=     999,000 triples=     997,002,000
+    V= 4000: pairs=  15,996,000 triples=  63,952,008,000
+
+--- 11B: regularity probe (state classes vs input length n; suffix limit = n) ---
+| Feature                            | Expected | n=6   | n=10  | n=14  | n=18  | n=22  | Observed | Min.St. | Status |
+-----------------------------------------------------------------------------------------------------------------------
+| digit fraction > 1/2 (exact)       |  GROWING |    13 |    21 |    29 |    37 |    45 |  GROWING |       - |   PASS |
+| balanced parentheses (unbounded)   |  GROWING |     8 |    12 |    16 |    20 |    24 |  GROWING |       - |   PASS |
+| unbounded counter (output=count)   |  GROWING |     7 |    11 |    15 |    19 |    23 |  GROWING |       - |   PASS |
+| balanced parens, depth cap 4       |  PLATEAU |     6 |     6 |     6 |     6 |     6 |  PLATEAU |       6 |   PASS |
+| digit fraction grid proxy          |  PLATEAU |    20 |    26 |    26 |    26 |    26 |  PLATEAU |      26 |   PASS |
+| distinct bytes >= 3 (S=4)          |  PLATEAU |    12 |    12 |    12 |    12 |    12 |  PLATEAU |      12 |   PASS |
+| specific run r=5 (S=2)             |  PLATEAU |     6 |     6 |     6 |     6 |     6 |  PLATEAU |       6 |   PASS |
+| saturating count k=5 (S=2)         |  PLATEAU |     6 |     6 |     6 |     6 |     6 |  PLATEAU |       6 |   PASS |
+| B within 4 after A (S=3)           |  PLATEAU |     6 |     6 |     6 |     6 |     6 |  PLATEAU |       6 |   PASS |
+-----------------------------------------------------------------------------------------------------------------------
+
+--- 11B2: digit-fraction proxy vs exact ratio (exhaustive, length <= 14) ---
+  shortest disagreeing input length: 10; disagreeing inputs (len<=14): 13870
+  proxy exact for every input of length <= 9, approximate beyond -> PASS
+
+--- 11C: byte-class compression and table cost at S=256 ---
+| Feature                        | States | Classes | Expected | Full tbl bits | Class tbl bits | Status |
+----------------------------------------------------------------------------------------------------------
+| b_within_w_after_a w=8         |     10 |       3 |        3 |         10240 |            632 |   PASS |
+| b_within_w_after_a w=16        |     18 |       3 |        3 |         23040 |            782 |   PASS |
+| run_specific r=8               |      9 |       2 |        2 |          9216 |            328 |   PASS |
+| saturating_count k=8           |      9 |       2 |        2 |          9216 |            328 |   PASS |
+| pattern 01 k=2 overlap         |      5 |       3 |        3 |          3840 |            557 |   PASS |
+| pattern 00 k=2 overlap         |      5 |       2 |        2 |          3840 |            286 |   PASS |
+| a_anywhere_before_b            |      3 |       3 |        3 |          1536 |            530 |   PASS |
+| ordered tokens 0|1|0           |      4 |       3 |        3 |          2048 |            536 |   PASS |
+| run_any r=2 (cannot compress)  |    258 |     256 |      256 |        594432 |         596480 |   PASS |
+| window w=1 (cannot compress)   |    256 |     256 |      256 |        524288 |         526336 |   PASS |
+----------------------------------------------------------------------------------------------------------
+
+--- 11E: combined cost of two features side by side ---
+| Pair                                     |   a |   b |   a*b | Measured | Bits | Sum bits | Status |
+------------------------------------------------------------------------------------------------------
+| run>=3 of 0 + run>=4 of 0 (S=2)          |   4 |   5 |    20 |        8 |    3 |        5 |   PASS |
+| run>=3 of 0 + count k=3 of 1 (S=2)       |   4 |   4 |    16 |       16 |    4 |        4 |   PASS |
+| B within 2 of A + count k=3 of 2 (S=3)   |   4 |   4 |    16 |       15 |    4 |        4 |   PASS |
+------------------------------------------------------------------------------------------------------
+
+Section 11 summary: OK [0, 0, 0, 0, 0]
+
+====================================================================================================
+EXTENDED SUITE SUMMARY: core=OK, stage_B_witnesses=OK, stage_C_falsification=OK, section_11_paper_claims=OK
+====================================================================================================
+exit_status_code->0, type-><class 'int'>
+
+
+```
