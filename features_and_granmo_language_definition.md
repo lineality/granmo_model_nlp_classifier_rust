@@ -8,11 +8,87 @@ with sufficient equivalence to reified abstractions including types, "symbols", 
 
 
 TODO: 
-Is it possible to have e.g. python code to validate:
-1. the acceptable behaviors of accepted patterns
-2. the unacceptable behavior of banned partners
-3. the acceptable proxy behavior of sample proxies
-4. How costs are being described/projected: there should be able to be some kind of python-test/demo measure of cost...
+"Follow the Money / Follow the Data"
+
+TODO: For testing, isolate main rust-code functions relevant for testing
+
+Is it possible to have e.g. python/rust code to validate:
+1. the acceptable behaviors of accepted patterns:
+A. for extended Granmo-Language (regex-subset) features
+B. for other meta-data-features
+Is there a checklist of verifiable features that can be demonstrated with code, rather than gesticulated about in flame-war.
+
+Are there features or feature-combinations that introduce interference between features (e.g. crosstalk) e.g. where there may need to be a 'model parameter' where the user picks "feature-group-A" or "feature-group-B" or "not-recommended-A-and-B" because of a known possible issue?
+
+
+2. the unacceptable behavior of banned partners:
+Are there nuances or other things we should more clearly understand about e.g. A. every-day regex ~patterns that are not directly appropriate for this study (for use an an expanded Granmo Machine), or 
+B. other meta-data instruments outside of regex that can/should or should-not be added to a standard-library of extended granmo-features.
+
+3. the acceptable proxy behavior of sample proxies (This may or may not be possible to answer if the question is a case-by-case nebulous as whether a proxy helps a given model for a given dataset. But in theory there might be some more abstract cases where proxies can be shown to be in some way possible for otherwise illegal actions. This might be in the form of a 'lossy toy model' but that might be sufficient.
+
+4. Checking Formulas for Expected Costs: How costs are being described/projected: (See vN results in appendix below)
+
+
+The model, training, inference are in Rust. If python is useful or quick studies as can be shared in a notebook, e.g. to see how a cost-estimate performs empirically, then python may be useful.
+But in other cases Rust code that is more directly connected to or even eventually used as part of the implementation may be needed.
+E.g.
+There may be a grey area between code for preliminary testing needed to design and make the real code, and that code itself.
+By default anything even indirectly connected to deployed code should be in Rust and compatible with the main project (random theoretical tests do not need to be). Anything used in real life as an part of model training, data preprocessing, pre-testing, inference, etc. that is 100% production-release Rust. 
+
+E.g. As an example of a purely-abstract quick-test case:
+For an exploratory design study to establish expectations and rules: Generate data for the question "Does the cost formula for b_within_w_after_a plateau as expected?" -> using python, build N (e.g.10, 100, 1000, etc.) DFAs and measure that to find out. Presumably this type of task is better suited for a shared R&D python notebook than product-code in Rust. (Or... in some cases, Rust is still better because of the granularity and precision.)
+
+Overall Default: Use Rust. 
+Only if there is a compelling reason to use python, then use python (e.g. easy standard code block with helpful easy standard data viz, necessary, sufficient, and quick).
+
+
+- TODO: Question:
+Are the scopes of 
+1. extended Grammo-Language (regex-subset) features
+and 
+2. other input-data meta-data features
+:
+A. Simply different
+B. Semi-Overlapping or indirectly related
+C. Able to be framed and articulated with a single Binarizable, Holzmann-save, Meta-Data-Language?
+
+Are there tests that can help to determine this?
+
+- TODO: Dungeon Inventory Management Tools & The 'Too Much Treasure' Problem
+Here is the overall scenareo, if somewhat hypthetical. Let's say that this extended-granmo standard-binarizable-metadata-language works, and there are more potential features than can be realistically trained on. Let's look at some specific questions:
+Question 1. What are the hard or soft boundaries for 'too many features'? E.g. 
+1. time (subjective-choice... up to a point)
+2. compute resources (economic choice... up to a point)
+3. a breakdown in the granmo-automata-voting system itself (not a user-choice)
+
+
+Question 2: Ensemble-Testing
+If feature-set A. is too big, but set-size/10 is acceptable, then can a (maybe or maybe not cross-validation-like) set of N random selections of 10% of features be tested and compared in a comparative analysis of feature-importance, in order to 
+A. Independence: to see if 'top features' are dependent on particular neighbor-features (or perhaps said differently: to measure how independent a given feature is (and how all the features are overall, would be great to see!)
+B. Identify 'top features' to select (e.g. simple if features are also independent, or sets of 'good together' features can selected)
+
+Could this work, if only using partial sampling, for larger magnitudes, e.g. if only 1/1000 scale of features is feasible to work with, could the results still be useful?
+
+From google-search:
+```
+"Feature Dilution" (Machine Learning)
+Definition: Feature dilution occurs when adding too many high-dimensional or noisy inputs to a model reduces the statistical importance or signal strength of key lower-dimensional features.
+```
+
+
+- TODO: Standard feature importance analysis & Reporting
+- also see: dimensionality-reduction 
+
+
+- TODO: Feature-Type-List
+How complete is the list of regex-like (and possibly other meta-data features) that would be part of a (maybe Genetic-Algorithm-like) feature-discovery before-modeling phase, where a more diverse set of features are pre-tested and pre-filtered. (As an alternative to defaulting to a known-small-enough extended-standard-feature-set)
+
+
+
+- Is there a general consensus on independence of binarized granmo features? what is known about this landscape?
+- Q: Does the sequence of the features in the voting system matter? (can/has this been, tested?)
+
 
 - TODO: integrate with https://github.com/lineality/operations_memory_state_manager 
 
@@ -53,6 +129,25 @@ Note: there are precedents in data-science (and pharma) for effective practices 
 
 
 
+Q: "Crosstalk"
+feature crosstalk or feature overlap, e.g. (or maybe a different topic) mixed-length n-grams.
+- Is this something that granmo models can filter out with voting?
+- Is there some other feature-interference pre-test pre-screening that can be run as part of pre-pruning the features that are trained on?
+
+Are there other types of feature pruning that can/should be done 'outside' of the model itself?
+
+~Language Properties: (maybe/draft)
+- single pass execution
+- Orthogonal/independent Clause-Space
+- Disjunctive Normal Form (DNF) Bitwise-Compatible
+- Stream-Computable
+- Constant-Space Deterministic Finite Execution
+- Statically Bounded State-Space
+- stack oriented
+
+Q: How is the 'clause layer' of the 2018 Grenmo model related to the proposed extension, such that 
+A. proposed extensions are happening inside or outside of a modified or unmodified clause-layer
+B. that all current features and clause-layer-derived feature types are considered so as to avoid duplication/redundancy (not re-adding what exists)
 
 
 # Features & Types: Granmo-Automata-Machines & Assembler-Memory-Space
