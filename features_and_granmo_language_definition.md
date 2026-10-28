@@ -2,26 +2,37 @@ features_and_granmo_language_definition
 
 ~Defining procedural-modeling in an auditable physical-computation-space
 
-Physical computation: based on physical primitives: bits, clock cycles, ?memory cursors?, model-features, bit-languages,
-with sufficient equivalence to reified abstractions including types, "symbols", lifetimes, etc.
 
 
+
+TODO: 
+Looking at mechanism or issue around mechanism for streaming input (maybe byte-set (utf-8) designation for end of...individual doc)?
+U+110000 to U+1FFFFF
+
+A Rust version of more trustworthy cost-formula checking.
+
+
+TODO:
+Are there features or feature-combinations that introduce interference between features (e.g. crosstalk) e.g. where there may need to be a 'model parameter' where the user picks "feature-group-A" or "feature-group-B" or "not-recommended-A-and-B" because of a known possible issue?
 
 TODO: 
 "Follow the Money / Follow the Data"
 
 TODO: For testing, isolate main rust-code functions relevant for testing
+How much does this framework depend on the Rust training and inference code, and vice-versa (given that any future code for these features will be... written for these features). 
 
+TODO:
 Is it possible to have e.g. python/rust code to validate:
+(Does this need to be (or ideally be) done in a context of existing Rust code? Could these take the form of cargo-tests?)
+
+
 1. the acceptable behaviors of accepted patterns:
 A. for extended Granmo-Language (regex-subset) features
 B. for other meta-data-features
 Is there a checklist of verifiable features that can be demonstrated with code, rather than gesticulated about in flame-war.
 
-Are there features or feature-combinations that introduce interference between features (e.g. crosstalk) e.g. where there may need to be a 'model parameter' where the user picks "feature-group-A" or "feature-group-B" or "not-recommended-A-and-B" because of a known possible issue?
 
-
-2. the unacceptable behavior of banned partners:
+2. the unacceptable behavior of what is banned:
 Are there nuances or other things we should more clearly understand about e.g. A. every-day regex ~patterns that are not directly appropriate for this study (for use an an expanded Granmo Machine), or 
 B. other meta-data instruments outside of regex that can/should or should-not be added to a standard-library of extended granmo-features.
 
@@ -56,11 +67,11 @@ C. Able to be framed and articulated with a single Binarizable, Holzmann-save, M
 Are there tests that can help to determine this?
 
 - TODO: Dungeon Inventory Management Tools & The 'Too Much Treasure' Problem
-Here is the overall scenareo, if somewhat hypthetical. Let's say that this extended-granmo standard-binarizable-metadata-language works, and there are more potential features than can be realistically trained on. Let's look at some specific questions:
+Here is the overall scenario, if somewhat hypothetical. Let's say that this extended-Granmo standard-binarizable-metadata-language works, and there are more potential features than can be realistically trained on. Let's look at some specific questions:
 Question 1. What are the hard or soft boundaries for 'too many features'? E.g. 
 1. time (subjective-choice... up to a point)
 2. compute resources (economic choice... up to a point)
-3. a breakdown in the granmo-automata-voting system itself (not a user-choice)
+3. a breakdown in the Granmo-automata-voting system itself (not a user-choice)
 
 
 Question 2: Ensemble-Testing
@@ -1362,11 +1373,11 @@ Chapter 9: Regular Languages
 - Pumping Lemas
 - Myhill-Nerode Theorem
 
+What other chapters?
 
-A note on context-free and context-sensitive languages.
-- TODO
+- Make A note on context-free and context-sensitive languages.
 
-The term 'Macro' in how it is used in Davis-2nd-ed, vs. how it is used in a c context: ?
+The term 'Macro' in how it is used in Davis-2nd-ed, vs. how it is used in a c-lang context: ?
 
 
 'symbols' languages, letters words:
@@ -1393,6 +1404,44 @@ Q: The term 'function' as used in Davis et al?
 
 Brainstorm idea: 
 structuring a memory-space as a (negative) proof?
+
+
+---
+
+To what extent is 'feature-space' potentially larger than thought by people in the 2020's? E.g. Are people analogizing the very few aspects of 'feature-space' (that are used in 'GOFAI' type systems) with which they are most familiar to most likely incorrectly characterize a deep and heterogenous space as being relatively shallow and homogenous? 
+
+Related questions here may be:
+1. How to get a linear-translation of a given feature-space?
+2. A linear-translation of what (or in some cases is that not known or knowable)?
+3. How well do we understand the utility of lower-dimensional-linearization with regards to utility-space and the large space being made practical?
+4. How can steps and parts of features be ~modularized for recombinative use?
+
+Arguably questions of what a Granmo-Automata-Machine can and show linearize and how relates to the option-space of what the options are for en? [Wading Through AI - Episode 11]
+Molly Rocketfeature-discovery and feature-handling throughout training and inference.
+
+https://en.wikipedia.org/wiki/Mechanistic_interpretability 
+https://en.wikipedia.org/wiki/Manifold_hypothesis 
+Demetri Spanos https://demetrispanos.com 
+Casey Muratori: https://computerenhance.com 
+
+
+"What's in a Token? [Wading Through AI - Episode 11]"
+https://www.youtube.com/watch?v=aQvSG8paVjM 
+Molly Rocket
+Oct 27, 2026  Wading Through AI
+https://www.computerenhance.com
+
+
+lex vs. parse
+
+... shannon-information density...
+
+
+TODO:
+formalizing a shannon-information-tokenization-step...
+
+Q: can this be done inside the model or by another layer of model?
+
 
 
 
